@@ -1,0 +1,26 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "pyvegh"
+version = "0.1.0"
+description = "Python bindings for Vegh - The CodeTease Snapshot Tool."
+authors = [{name = "CodeTease", email = "dev@codetease.com"}]
+readme = "README.md"
+requires-python = ">=3.8"
+keywords = ["snapshot", "backup", "rust", "binding"]
+license = {file = "LICENSE"}
+dependencies = [
+    "typer[all]>=0.9.0",  # CLI Framework
+    "rich>=13.0.0",       # Fancy UI
+    "requests>=2.31.0",   # Networking
+]
+
+[project.scripts]
+vegh = "vegh.cli:app"  # CLI entry point
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+python-source = "python"
+module-name = "vegh._core" # Maps Rust binary to vegh._core
