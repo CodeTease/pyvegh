@@ -18,19 +18,18 @@ jobs:
         target: [x86_64, aarch64]
     steps:
       - uses: actions/checkout@v4
+      
+      # Setup Python + Auto Cache PIP
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-      
-      - name: Cache Cargo
-        uses: actions/cache@v4
+          cache: 'pip' 
+
+      # Setup Rust Cache (Replacing manual actions/cache)
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            target
-          # Changed from **/Cargo.lock to Cargo.lock to avoid permission errors
-          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+           key: ${{ matrix.target }} # Separate cache for each target arch
 
       - name: Build wheels
         uses: PyO3/maturin-action@v1
@@ -53,19 +52,17 @@ jobs:
         target: [x64]
     steps:
       - uses: actions/checkout@v4
+      
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
           architecture: ${{ matrix.target }}
+          cache: 'pip'
 
-      - name: Cache Cargo
-        uses: actions/cache@v4
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+           key: ${{ matrix.target }}
 
       - name: Build wheels
         uses: PyO3/maturin-action@v1
@@ -87,18 +84,17 @@ jobs:
         target: [x86_64, aarch64]
     steps:
       - uses: actions/checkout@v4
+      
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+          cache: 'pip'
 
-      - name: Cache Cargo
-        uses: actions/cache@v4
+      # This solves the macOS hashFiles error completely
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+           key: ${{ matrix.target }}
 
       - name: Build wheels
         uses: PyO3/maturin-action@v1
@@ -118,6 +114,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
       - name: Build sdist
         uses: PyO3/maturin-action@v1
         with:
