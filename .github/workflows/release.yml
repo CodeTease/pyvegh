@@ -5,13 +5,12 @@ on:
     tags:
       - 'v*'
 
-# QUAN TRỌNG: Cấp quyền cho GitHub tạo OIDC token
 permissions:
   contents: read
-  id-token: write 
+  id-token: write # Quan trọng cho Trusted Publishing (OIDC)
 
 jobs:
-  # 1. Build Linux
+  # --- BUILD JOBS ---
   linux:
     runs-on: ubuntu-latest
     strategy:
@@ -22,17 +21,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-
-      # Thêm Cache cho Rust Dependencies (Cargo Registry) và build output (Target)
-      - name: Cache Cargo Dependencies
+      
+      # Cache Rust dependencies & build artifacts
+      - name: Cache Cargo
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+          restore-keys: ${{ runner.os }}-cargo-
 
       - name: Build wheels
         uses: PyO3/maturin-action@v1
@@ -41,13 +39,13 @@ jobs:
           args: --release --out dist --find-interpreter
           sccache: 'true'
           manylinux: auto
+      
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
           name: wheels-linux-${{ matrix.target }}
           path: dist
 
-  # 2. Build Windows
   windows:
     runs-on: windows-latest
     strategy:
@@ -60,16 +58,14 @@ jobs:
           python-version: '3.10'
           architecture: ${{ matrix.target }}
 
-      # Thêm Cache cho Rust Dependencies (Cargo Registry) và build output (Target)
-      - name: Cache Cargo Dependencies
+      - name: Cache Cargo
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+          restore-keys: ${{ runner.os }}-cargo-
 
       - name: Build wheels
         uses: PyO3/maturin-action@v1
@@ -77,13 +73,13 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --out dist --find-interpreter
           sccache: 'true'
+      
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
           name: wheels-windows-${{ matrix.target }}
           path: dist
 
-  # 3. Build macOS
   macos:
     runs-on: macos-latest
     strategy:
@@ -95,68 +91,51 @@ jobs:
         with:
           python-version: '3.10'
 
-      # Thêm Cache cho Rust Dependencies (Cargo Registry) và build output (Target)
-      - name: Cache Cargo Dependencies
+      - name: Cache Cargo
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-            
+          restore-keys: ${{ runner.os }}-cargo-
+
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
           args: --release --out dist --find-interpreter
           sccache: 'true'
+      
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
           name: wheels-macos-${{ matrix.target }}
           path: dist
 
-  # 4. Build Source Distribution (sdist) - Quan trọng cho các hệ điều hành lạ
   sdist:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      # Thêm Cache cho Rust Dependencies (Cargo Registry) và build output (Target)
-      - name: Cache Cargo Dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
+      
       - name: Build sdist
         uses: PyO3/maturin-action@v1
         with:
           command: sdist
           args: --out dist
+      
       - name: Upload sdist
         uses: actions/upload-artifact@v4
         with:
           name: wheels-sdist
           path: dist
 
-  # 5. PUBLISH - Dùng Trusted Publishing
+  # --- PUBLISH JOB ---
   release:
     name: Publish to PyPI
     runs-on: ubuntu-latest
-    # Chỉ chạy khi các job build xong
     needs: [linux, windows, macos, sdist]
-    # Môi trường phải khớp với cấu hình trên PyPI
-    environment: pypi 
+    environment: pypi # Phải khớp với Config trên PyPI
     permissions:
       id-token: write
       contents: read
@@ -168,7 +147,6 @@ jobs:
           path: dist
           merge-multiple: true
       
-      # Action chính chủ của PyPA, tự động dùng OIDC
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
