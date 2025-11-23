@@ -1,129 +1,187 @@
 use pyo3::prelude::*;
-use pyo3::exceptions::{PyIOError};
-use std::fs::File;
-use std::io::{Read};
+use pyo3::exceptions::{PyIOError, PyValueError};
+use std::fs::{self, File};
+use std::io::Read;
 use std::path::Path;
-use ignore::WalkBuilder;
+use ignore::{WalkBuilder, overrides::OverrideBuilder};
 use sha2::{Digest, Sha256};
+use serde::{Serialize, Deserialize};
+use chrono::Utc;
 
-/// Create a snapshot (.snap) from a directory.
-/// Returns the number of files compressed.
+const PRESERVED_FILES: &[&str] = &[".veghignore", ".gitignore"];
+
+#[derive(Serialize, Deserialize)]
+struct VeghMetadata {
+    author: String,
+    timestamp: i64,
+    comment: String,
+    tool_version: String,
+}
+
 #[pyfunction]
-fn create_snap(source: String, output: String) -> PyResult<usize> {
+#[pyo3(signature = (source, output, level=3, comment=None, include=None, exclude=None))]
+fn create_snap(
+    source: String, 
+    output: String, 
+    level: i32, 
+    comment: Option<String>,
+    include: Option<Vec<String>>,
+    exclude: Option<Vec<String>>
+) -> PyResult<usize> {
     let source_path = Path::new(&source);
     let output_path = Path::new(&output);
+    let file = File::create(output_path).map_err(|e| PyIOError::new_err(e.to_string()))?;
+    
+    let output_abs = fs::canonicalize(output_path).unwrap_or_else(|_| output_path.to_path_buf());
 
-    let file = File::create(output_path)
-        .map_err(|e| PyIOError::new_err(format!("Failed to create output file: {}", e)))?;
+    let meta = VeghMetadata {
+        author: "CodeTease (PyVegh)".to_string(),
+        timestamp: Utc::now().timestamp(),
+        comment: comment.unwrap_or_default(),
+        tool_version: "PyVegh 0.2.0".to_string(),
+    };
+    let meta_json = serde_json::to_string_pretty(&meta).unwrap();
 
-    // Zstd Encoder: Level 3 (Balanced)
-    let encoder = zstd::stream::write::Encoder::new(file, 3)
-        .map_err(|e| PyIOError::new_err(format!("Zstd init error: {}", e)))?;
-
+    let encoder = zstd::stream::write::Encoder::new(file, level)
+        .map_err(|e| PyIOError::new_err(e.to_string()))?;
     let mut tar = tar::Builder::new(encoder);
+
+    let mut header = tar::Header::new_gnu();
+    header.set_path(".vegh.json").unwrap();
+    header.set_size(meta_json.len() as u64);
+    header.set_mode(0o644);
+    header.set_cksum();
+    tar.append_data(&mut header, ".vegh.json", meta_json.as_bytes())
+        .map_err(|e| PyIOError::new_err(e.to_string()))?;
+
     let mut count = 0;
-
-    let ignore_filename = ".veghignore";
-
-    // 1. Manually add .veghignore if it exists
-    let ignore_path = source_path.join(ignore_filename);
-    if ignore_path.exists() && ignore_path.is_file() {
-        let mut f = File::open(&ignore_path)
-            .map_err(|e| PyIOError::new_err(format!("Failed to open .veghignore: {}", e)))?;
-        
-        tar.append_file(ignore_filename, &mut f)
-            .map_err(|e| PyIOError::new_err(format!("Failed to archive .veghignore: {}", e)))?;
-        count += 1;
+    
+    for &name in PRESERVED_FILES {
+        let p = source_path.join(name);
+        if p.exists() {
+            let mut f = File::open(&p).map_err(|e| PyIOError::new_err(e.to_string()))?;
+            tar.append_file(name, &mut f).map_err(|e| PyIOError::new_err(e.to_string()))?;
+            count += 1;
+        }
     }
 
-    // 2. Walk the directory respecting .veghignore
+    let mut override_builder = OverrideBuilder::new(source_path);
+    if let Some(incs) = include {
+        for pattern in incs {
+            let _ = override_builder.add(&format!("!{}", pattern)); 
+        }
+    }
+    if let Some(excs) = exclude {
+        for pattern in excs {
+            let _ = override_builder.add(&pattern); 
+        }
+    }
+    
+    let overrides = override_builder.build()
+        .map_err(|e| PyIOError::new_err(format!("Override build fail: {}", e)))?;
+
     let mut builder = WalkBuilder::new(source_path);
-    builder.add_custom_ignore_filename(ignore_filename);
-    builder.hidden(true);
-    builder.git_ignore(true);
+    for &f in PRESERVED_FILES { builder.add_custom_ignore_filename(f); }
+    
+    builder.hidden(true).git_ignore(true).overrides(overrides);
 
-    let walker = builder.build();
-
-    for result in walker {
-        match result {
-            Ok(entry) => {
-                let path = entry.path();
-                if path.is_file() {
-                    let name = path.strip_prefix(source_path).unwrap_or(path);
-                    let name_str = name.to_string_lossy();
-
-                    if name_str == ignore_filename {
-                        continue;
-                    }
-
-                    tar.append_path_with_name(path, name)
-                        .map_err(|e| PyIOError::new_err(format!("Failed to archive {:?}: {}", path, e)))?;
-                    
-                    count += 1;
+    for res in builder.build() {
+        if let Ok(entry) = res {
+            let path = entry.path();
+            if path.is_file() {
+                if let Ok(abs) = fs::canonicalize(path) { 
+                    if abs == output_abs { continue; } 
                 }
-            }
-            Err(err) => {
-                // In binding context, eprintln goes to stderr which Python can see
-                eprintln!("Warning: Could not access file: {}", err);
+
+                let name = path.strip_prefix(source_path).unwrap_or(path);
+                if PRESERVED_FILES.contains(&name.to_string_lossy().as_ref()) { continue; }
+                
+                tar.append_path_with_name(path, name)
+                    .map_err(|e| PyIOError::new_err(e.to_string()))?;
+                count += 1;
             }
         }
     }
 
-    let encoder = tar.into_inner()
-        .map_err(|e| PyIOError::new_err(format!("Tar finalize error: {}", e)))?;
-    encoder.finish()
-        .map_err(|e| PyIOError::new_err(format!("Zstd finalize error: {}", e)))?;
+    let enc = tar.into_inner().unwrap();
+    enc.finish().map_err(|e| PyIOError::new_err(format!("Finalize error: {}", e)))?;
 
     Ok(count)
 }
 
-/// Restore a snapshot (.snap) to a directory.
 #[pyfunction]
+#[pyo3(signature = (file_path, out_dir))]
 fn restore_snap(file_path: String, out_dir: String) -> PyResult<()> {
-    let input_path = Path::new(&file_path);
-    let output_path = Path::new(&out_dir);
+    let out = Path::new(&out_dir);
+    if !out.exists() { fs::create_dir_all(out).map_err(|e| PyIOError::new_err(e.to_string()))?; }
 
-    let file = File::open(input_path)
-        .map_err(|e| PyIOError::new_err(format!("Failed to open .snap file: {}", e)))?;
-
-    let decoder = zstd::stream::read::Decoder::new(file)
-        .map_err(|e| PyIOError::new_err(format!("Zstd decoder error: {}", e)))?;
-
+    let file = File::open(&file_path).map_err(|e| PyIOError::new_err(e.to_string()))?;
+    let decoder = zstd::stream::read::Decoder::new(file).unwrap();
     let mut archive = tar::Archive::new(decoder);
-    
-    archive.unpack(output_path)
-        .map_err(|e| PyIOError::new_err(format!("Failed to unpack archive: {}", e)))?;
 
+    for entry in archive.entries().map_err(|e| PyIOError::new_err(e.to_string()))? {
+        let mut entry = entry.map_err(|e| PyIOError::new_err(e.to_string()))?;
+        let path = entry.path().unwrap().into_owned();
+        if path.to_string_lossy() == ".vegh.json" { continue; }
+        entry.unpack_in(out).map_err(|e| PyIOError::new_err(e.to_string()))?;
+    }
     Ok(())
 }
 
-/// Calculate SHA256 checksum of a file.
 #[pyfunction]
-fn check_integrity(file_path: String) -> PyResult<String> {
-    let path = Path::new(&file_path);
-    let mut file = File::open(path)
-        .map_err(|e| PyIOError::new_err(format!("Failed to open file: {}", e)))?;
-
-    let mut hasher = Sha256::new();
-    let mut buffer = [0; 8192];
-
-    loop {
-        let count = file.read(&mut buffer)
-            .map_err(|e| PyIOError::new_err(format!("Read error: {}", e)))?;
-        if count == 0 { break; }
-        hasher.update(&buffer[..count]);
+fn list_files(file_path: String) -> PyResult<Vec<String>> {
+    let file = File::open(&file_path).map_err(|e| PyIOError::new_err(e.to_string()))?;
+    let decoder = zstd::stream::read::Decoder::new(file).unwrap();
+    let mut archive = tar::Archive::new(decoder);
+    
+    let mut files = Vec::new();
+    if let Ok(entries) = archive.entries() {
+        for entry in entries {
+            if let Ok(e) = entry {
+                if let Ok(p) = e.path() { files.push(p.to_string_lossy().to_string()); }
+            }
+        }
     }
-
-    let result = hasher.finalize();
-    Ok(hex::encode(result))
+    Ok(files)
 }
 
-/// The Python module definition.
+#[pyfunction]
+fn check_integrity(file_path: String) -> PyResult<String> {
+    let mut f = File::open(file_path).map_err(|e| PyIOError::new_err(e.to_string()))?;
+    let mut sha = Sha256::new();
+    std::io::copy(&mut f, &mut sha).map_err(|e| PyIOError::new_err(e.to_string()))?;
+    Ok(hex::encode(sha.finalize()))
+}
+
+#[pyfunction]
+fn get_metadata(file_path: String) -> PyResult<String> {
+    let file = File::open(&file_path).map_err(|e| PyIOError::new_err(e.to_string()))?;
+    let decoder = zstd::stream::read::Decoder::new(file).unwrap();
+    let mut archive = tar::Archive::new(decoder);
+
+    if let Ok(entries) = archive.entries() {
+        for entry in entries {
+            if let Ok(mut e) = entry {
+                if let Ok(p) = e.path() {
+                    if p.to_string_lossy() == ".vegh.json" {
+                        let mut content = String::new();
+                        e.read_to_string(&mut content).map_err(|e| PyIOError::new_err(e.to_string()))?;
+                        return Ok(content);
+                    }
+                }
+            }
+        }
+    }
+    Err(PyValueError::new_err("Metadata not found in snapshot"))
+}
+
 #[pymodule]
 #[pyo3(name = "_core")]
 fn pyvegh_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(create_snap, m)?)?;
     m.add_function(wrap_pyfunction!(restore_snap, m)?)?;
+    m.add_function(wrap_pyfunction!(list_files, m)?)?;
     m.add_function(wrap_pyfunction!(check_integrity, m)?)?;
+    m.add_function(wrap_pyfunction!(get_metadata, m)?)?; 
     Ok(())
 }
