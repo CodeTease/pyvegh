@@ -9,6 +9,8 @@ use serde::{Serialize, Deserialize};
 use chrono::Utc;
 
 const PRESERVED_FILES: &[&str] = &[".veghignore", ".gitignore"];
+// Define the file format version. Bump this ONLY when the snapshot structure changes.
+const SNAPSHOT_FORMAT_VERSION: &str = "1";
 
 #[derive(Serialize, Deserialize)]
 struct VeghMetadata {
@@ -38,7 +40,8 @@ fn create_snap(
         author: "CodeTease (PyVegh)".to_string(),
         timestamp: Utc::now().timestamp(),
         comment: comment.unwrap_or_default(),
-        tool_version: "PyVegh 0.2.0".to_string(),
+        // Use the stable format version instead of the package version
+        tool_version: SNAPSHOT_FORMAT_VERSION.to_string(),
     };
     let meta_json = serde_json::to_string_pretty(&meta).unwrap();
 
