@@ -55,9 +55,9 @@ vegh restore backup.snap ./restored-folder
 
 5. **Send**
 
-Send the snapshot to a remote server.
+Send the snapshot to a remote server. (Now with chunking and --force-chunk option!)
 ```bash
-vegh send backup.snap https://api.teaserverse.online/test --auth YOUR_TOKEN
+vegh send backup.snap https://api.teaserverse.online/test --auth YOUR_TOKEN --force-chunk
 ```
 
 ## Library Usage

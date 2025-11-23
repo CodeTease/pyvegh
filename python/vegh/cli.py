@@ -2,13 +2,16 @@ import typer
 import time
 import json
 import requests
+import math
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, DownloadColumn, TransferSpeedColumn
 
 try:
     from ._core import create_snap, restore_snap, check_integrity, list_files, get_metadata
@@ -23,6 +26,11 @@ app = typer.Typer(
     no_args_is_help=True 
 )
 console = Console()
+
+# Constants synced from Vegh Rust
+CHUNK_THRESHOLD = 100 * 1024 * 1024  # 100MB
+CHUNK_SIZE = 10 * 1024 * 1024        # 10MB
+CONCURRENT_WORKERS = 4               # 4 chunks at a time
 
 @app.command()
 def snap(
@@ -133,34 +141,68 @@ def check(file: Path = typer.Argument(..., help=".snap file")):
         except Exception as e:
             console.print(f"[red]Check Failed:[/red] {e}")
 
+def _upload_chunk(url: str, file_path: Path, start: int, chunk_size: int, index: int, total_chunks: int, filename: str, headers: dict):
+    """Helper worker for threaded upload"""
+    try:
+        with open(file_path, 'rb') as f:
+            f.seek(start)
+            data = f.read(chunk_size)
+        
+        # Add chunk-specific headers
+        chunk_headers = headers.copy()
+        chunk_headers.update({
+            "X-File-Name": filename,
+            "X-Chunk-Index": str(index),
+            "X-Total-Chunks": str(total_chunks)
+        })
+        
+        resp = requests.post(url, data=data, headers=chunk_headers)
+        if not (200 <= resp.status_code < 300):
+            raise Exception(f"Status {resp.status_code}")
+        return True
+    except Exception as e:
+        raise Exception(f"Chunk {index} failed: {e}")
+
 @app.command()
 def send(
     file: Path = typer.Argument(..., help="The file to send"),
     url: str = typer.Argument(..., help="The target URL"),
+    force_chunk: bool = typer.Option(False, "--force-chunk", help="Force chunked upload logic"),
     auth: Optional[str] = typer.Option(None, "--auth", help="Bearer token"),
 ):
-    """Send a snapshot to a remote server"""
+    """Send a snapshot to a remote server (supports chunking)"""
     if not file.exists():
         console.print(f"[bold red]Error:[/bold red] File '{file}' not found.")
         raise typer.Exit(code=1)
 
     file_size = file.stat().st_size
     size_mb = file_size / (1024 * 1024)
+    filename = file.name
+
     console.print(f"[cyan]Target:[/cyan] {url}")
-    console.print(f"[cyan]File:[/cyan] {file.name} ([bold]{size_mb:.2f} MB[/bold])")
+    console.print(f"[cyan]File:[/cyan] {filename} ([bold]{size_mb:.2f} MB[/bold])")
     
-    headers = {}
+    base_headers = {}
     if auth:
-        headers["Authorization"] = f"Bearer {auth}"
+        base_headers["Authorization"] = f"Bearer {auth}"
         console.print(f"[green]Authentication:[/green] Enabled")
 
-    console.print("[yellow]Mode:[/yellow] Direct Upload")
-    
+    # Decision Logic
+    if file_size < CHUNK_THRESHOLD and not force_chunk:
+        console.print("[yellow]Mode:[/yellow] Direct Upload")
+        _send_direct(file, url, base_headers)
+    else:
+        console.print("[yellow]Mode:[/yellow] Concurrent Chunked Upload")
+        _send_chunked(file, url, file_size, filename, base_headers)
+
+def _send_direct(file: Path, url: str, headers: dict):
     try:
         with open(file, 'rb') as f:
             with Progress(
                 SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TransferSpeedColumn(),
                 transient=True,
             ) as progress:
                 progress.add_task(description="Uploading...", total=None)
@@ -174,6 +216,44 @@ def send(
             console.print(f"[bold red]Upload failed:[/bold red] Status {response.status_code}")
     except Exception as e:
          console.print(f"[bold red]Network Error:[/bold red] {e}")
+
+def _send_chunked(file: Path, url: str, file_size: int, filename: str, headers: dict):
+    total_chunks = math.ceil(file_size / CHUNK_SIZE)
+    
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("{task.completed}/{task.total} chunks"),
+        transient=False,
+    ) as progress:
+        task_id = progress.add_task("Uploading chunks...", total=total_chunks)
+        
+        with ThreadPoolExecutor(max_workers=CONCURRENT_WORKERS) as executor:
+            futures = []
+            for i in range(total_chunks):
+                start = i * CHUNK_SIZE
+                # Determine size for this chunk
+                current_size = min(CHUNK_SIZE, file_size - start)
+                
+                futures.append(
+                    executor.submit(
+                        _upload_chunk, 
+                        url, file, start, current_size, i, total_chunks, filename, headers
+                    )
+                )
+            
+            # Wait for completion
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                    progress.advance(task_id, 1)
+                except Exception as e:
+                    console.print(f"[red]Upload Aborted:[/red] {e}")
+                    # In a real app we might want to cancel pending futures here
+                    raise typer.Exit(1)
+
+    console.print("[bold green]All chunks sent successfully![/bold green]")
 
 if __name__ == "__main__":
     app()
