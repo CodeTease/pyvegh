@@ -21,15 +21,15 @@ struct VeghMetadata {
 }
 
 #[pyfunction]
-#[pyo3(signature = (source, output, level=3, comment=None, include=None, exclude=None, callback=None))]
+#[pyo3(signature = (source, output, level=3, comment=None, include=None, exclude=None))]
 fn create_snap(
     source: String, 
     output: String, 
     level: i32, 
     comment: Option<String>,
     include: Option<Vec<String>>,
-    exclude: Option<Vec<String>>,
-    callback: Option<Py<PyAny>> // Modern PyO3 Type
+    exclude: Option<Vec<String>>
+    // Callback removed for MAXIMUM SPEED 🚀
 ) -> PyResult<usize> {
     let source_path = Path::new(&source);
     let output_path = Path::new(&output);
@@ -102,15 +102,8 @@ fn create_snap(
                 tar.append_path_with_name(path, name)
                     .map_err(|e| PyIOError::new_err(e.to_string()))?;
                 count += 1;
-
-                // --- PROGRESS REPORTING ---
-                if let Some(ref cb) = callback {
-                    if count % 50 == 0 {
-                        Python::with_gil(|py| {
-                            let _ = cb.bind(py).call1((count,));
-                        });
-                    }
-                }
+                
+                // No callback check here. Pure Rust Iteration.
             }
         }
     }
@@ -128,13 +121,9 @@ fn dry_run_snap(
     include: Option<Vec<String>>,
     exclude: Option<Vec<String>>
 ) -> PyResult<Vec<(String, u64)>> {
-    // Replicates the traversal logic of create_snap exactly, but without compression.
-    // Returns a list of (relative_path, file_size_in_bytes).
-    
     let source_path = Path::new(&source);
     let mut results = Vec::new();
     
-    // 1. Check Preserved Files first (mirroring create_snap logic)
     for &name in PRESERVED_FILES {
         let p = source_path.join(name);
         if p.exists() {
@@ -144,7 +133,6 @@ fn dry_run_snap(
         }
     }
 
-    // 2. Setup Walker & Overrides (Exact copy of create_snap logic)
     let mut override_builder = OverrideBuilder::new(source_path);
     if let Some(incs) = include {
         for pattern in incs { let _ = override_builder.add(&format!("!{}", pattern)); }
@@ -158,21 +146,15 @@ fn dry_run_snap(
 
     let mut builder = WalkBuilder::new(source_path);
     for &f in PRESERVED_FILES { builder.add_custom_ignore_filename(f); }
-    
     builder.hidden(true).git_ignore(true).overrides(overrides);
 
-    // 3. Traversal
     for res in builder.build() {
         if let Ok(entry) = res {
             let path = entry.path();
             if path.is_file() {
-                // No need to check for output_abs collision in dry-run
-                
                 let name = path.strip_prefix(source_path).unwrap_or(path);
                 let name_str = name.to_string_lossy().to_string();
-
                 if PRESERVED_FILES.contains(&name_str.as_str()) { continue; }
-                
                 let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
                 results.push((name_str, size));
             }
@@ -264,13 +246,9 @@ fn count_locs(file_path: String) -> PyResult<Vec<(String, usize)>> {
                 let path_str = path.to_string_lossy().to_string();
                 
                 if path_str == ".vegh.json" { continue; }
-
-                // Attempt to read as text to count lines
-                // If it fails (UTF-8 error) or contains null bytes, treat as binary (0 LOC)
                 let mut content = String::new();
                 match e.read_to_string(&mut content) {
                     Ok(_) => {
-                        // Check for null bytes (heuristic for binary files disguised as text)
                         if content.contains('\0') {
                             results.push((path_str, 0));
                         } else {
@@ -278,7 +256,6 @@ fn count_locs(file_path: String) -> PyResult<Vec<(String, usize)>> {
                         }
                     },
                     Err(_) => {
-                        // If we can't read it as String (e.g. invalid UTF-8), it's binary
                         results.push((path_str, 0));
                     }
                 }
@@ -292,7 +269,7 @@ fn count_locs(file_path: String) -> PyResult<Vec<(String, usize)>> {
 #[pyo3(name = "_core")]
 fn pyvegh_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(create_snap, m)?)?;
-    m.add_function(wrap_pyfunction!(dry_run_snap, m)?)?; // NEW
+    m.add_function(wrap_pyfunction!(dry_run_snap, m)?)?; 
     m.add_function(wrap_pyfunction!(restore_snap, m)?)?;
     m.add_function(wrap_pyfunction!(list_files, m)?)?;
     m.add_function(wrap_pyfunction!(check_integrity, m)?)?;

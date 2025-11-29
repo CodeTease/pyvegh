@@ -218,14 +218,11 @@ def snap(
     console.print(f"[cyan]Packing[/cyan] [b]{path}[/b] -> [b]{output_path}[/b]")
     start = time.time()
     
-    with Progress(
-        SpinnerColumn(), TextColumn("[bold blue]{task.description}"), BarColumn(bar_width=None), 
-        TextColumn("[progress.percentage]{task.completed} files"), TimeElapsedColumn(), transient=True
-    ) as progress:
-        task_id = progress.add_task("Compressing...", total=None) 
-        def progress_callback(count): progress.update(task_id, completed=count)
+    # Use simple Spinner (no counting overhead) for maximum speed
+    with console.status("[bold cyan]Compressing...[/bold cyan]", spinner="dots"):
         try:
-            count = create_snap(str(path), str(output_path), level, comment, include, exclude, progress_callback)
+            # Note: No callback passed anymore
+            count = create_snap(str(path), str(output_path), level, comment, include, exclude)
         except Exception as e:
             console.print(f"[red]Error:[/red] {e}")
             raise typer.Exit(1)
@@ -249,8 +246,8 @@ def restore(
     if not file.exists():
         console.print("[red]File not found.[/red]")
         raise typer.Exit(1)
-    with Progress(SpinnerColumn(), TextColumn("[cyan]Restoring...[/cyan]"), transient=True) as p:
-        p.add_task("unpack", total=None)
+    # Using Status/Spinner instead of Progress bar here too
+    with console.status("[bold cyan]Restoring...[/bold cyan]", spinner="dots"):
         try: restore_snap(str(file), str(out_dir))
         except Exception as e:
             console.print(f"[red]Restore failed:[/red] {e}")
@@ -285,8 +282,7 @@ def check(file: Path = typer.Argument(..., help=".snap file")):
     if not file.exists():
         console.print(f"[red]File '{file}' not found.[/red]")
         raise typer.Exit(1)
-    with Progress(SpinnerColumn(), TextColumn("[bold cyan]Verifying...[/bold cyan]"), transient=True) as p:
-        p.add_task("verifying", total=None)
+    with console.status("[bold cyan]Verifying Integrity...[/bold cyan]", spinner="dots"):
         try:
             h = check_integrity(str(file))
             raw_meta = get_metadata(str(file))
@@ -316,8 +312,7 @@ def loc(
         console.print(f"[red]File '{file}' not found.[/red]")
         raise typer.Exit(1)
 
-    with Progress(SpinnerColumn(), TextColumn("[cyan]Crunching numbers...[/cyan]"), transient=True) as p:
-        p.add_task("counting", total=None)
+    with console.status("[cyan]Crunching numbers...[/cyan]", spinner="dots"):
         try:
             results = count_locs(str(file))
         except Exception as e:
@@ -365,7 +360,6 @@ def loc(
         if not raw and not render_dashboard:
             console.print("[dim italic]Note: Dashboard module (vegh.analytics) not found. Showing list view.[/dim italic]")
 
-# ... (Upload logic unchanged) ...
 def _upload_chunk(url: str, file_path: Path, start: int, chunk_size: int, index: int, total_chunks: int, filename: str, headers: dict):
     try:
         with open(file_path, 'rb') as f:
@@ -427,14 +421,8 @@ def send(
 def _send_direct(file: Path, url: str, headers: dict):
     try:
         with open(file, 'rb') as f:
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TransferSpeedColumn(),
-                transient=True,
-            ) as progress:
-                progress.add_task(description="Uploading...", total=None)
+            # Replaced Progress with Status Spinner
+            with console.status("[bold cyan]Uploading...[/bold cyan]", spinner="dots"):
                 response = requests.post(url, data=f, headers=headers)
                 
         if response.status_code in range(200, 300):
@@ -449,15 +437,14 @@ def _send_direct(file: Path, url: str, headers: dict):
 def _send_chunked(file: Path, url: str, file_size: int, filename: str, headers: dict):
     total_chunks = math.ceil(file_size / CHUNK_SIZE)
     
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("{task.completed}/{task.total} chunks"),
-        transient=False,
-    ) as progress:
-        task_id = progress.add_task("Uploading...", total=total_chunks)
-        
+    # Progress Bar is still somewhat useful for uploads (Network IO is slow anyway)
+    # But since we want to delete it, I'll switch to a Spinner that says "Uploading X Chunks..."
+    # Actually, for network, knowing percentage IS useful, but let's stick to the spirit of "Turbo Mode".
+    # I'll keep the progress bar ONLY for Upload (since it's network bound, not CPU bound like Rust), 
+    # OR replace it if you want consistency.
+    
+    with console.status(f"[bold cyan]Uploading {total_chunks} chunks...[/bold cyan]", spinner="dots") as status:
+        completed = 0
         with ThreadPoolExecutor(max_workers=CONCURRENT_WORKERS) as executor:
             futures = []
             for i in range(total_chunks):
@@ -468,7 +455,8 @@ def _send_chunked(file: Path, url: str, file_size: int, filename: str, headers: 
             for future in as_completed(futures):
                 try:
                     future.result()
-                    progress.advance(task_id, 1)
+                    completed += 1
+                    status.update(f"[bold cyan]Uploading... ({completed}/{total_chunks})[/bold cyan]")
                 except Exception as e:
                     console.print(f"[red]Upload Aborted:[/red] {e}")
                     raise typer.Exit(1)

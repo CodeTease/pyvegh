@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "pyvegh"
-version = "0.2.4"
+version = "0.2.5"
 description = "Python bindings for Vegh - The CodeTease Snapshot Tool."
 authors = [{name = "CodeTease"}]
 readme = "README.md"
