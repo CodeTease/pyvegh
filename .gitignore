@@ -42,4 +42,4 @@ venv.bak/
 *.swp
 
 # Internal Snap files
-backup.snap
+*.snap

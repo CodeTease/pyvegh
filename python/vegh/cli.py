@@ -17,7 +17,7 @@ from rich.prompt import Prompt
 
 # Import core functionality
 try:
-    from ._core import create_snap, restore_snap, check_integrity, list_files, get_metadata
+    from ._core import create_snap, restore_snap, check_integrity, list_files, get_metadata, count_locs
 except ImportError:
     print("Error: Rust core missing. Run 'maturin develop'!")
     exit(1)
@@ -64,19 +64,7 @@ def format_bytes(size):
 def build_tree(path_list: List[str], root_name: str) -> Tree:
     """Converts a list of paths into a Rich Tree structure."""
     tree = Tree(f"[bold cyan]📦 {root_name}[/bold cyan]")
-    branches = {}
-
-    def get_branch(path_parts, current_branch):
-        if not path_parts:
-            return current_branch
-        part = path_parts[0]
-        if part not in branches:
-            # Create a new branch if it doesn't exist
-            # We use a tuple key to differentiate branches at different levels
-            # But here we simplify by attaching to the tree object directly
-            pass 
-        return None # Simplified logic placeholder
-
+    
     # A simpler iterative approach for Tree building
     # Map: folder_path_str -> Tree_Branch
     folder_map = {"": tree}
@@ -91,8 +79,6 @@ def build_tree(path_list: List[str], root_name: str) -> Tree:
             is_file = (i == len(parts) - 1)
             
             if parent_path not in folder_map:
-                # This should technically not happen if sorted, but safety first
-                # Fallback to root if parent missing
                 parent_node = tree 
             else:
                 parent_node = folder_map[parent_path]
@@ -255,6 +241,46 @@ def check(file: Path = typer.Argument(..., help=".snap file")):
         except Exception as e:
             console.print(f"[bold red]❌ Verification Failed:[/bold red] {e}")
             raise typer.Exit(1)
+
+@app.command()
+def loc(file: Path = typer.Argument(..., help=".snap file")):
+    """🔢 Count Lines of Code (LOC) inside snapshot."""
+    if not file.exists():
+        console.print(f"[red]File '{file}' not found.[/red]")
+        raise typer.Exit(1)
+
+    with Progress(SpinnerColumn(), TextColumn("[cyan]Counting LOC...[/cyan]"), transient=True) as p:
+        p.add_task("counting", total=None)
+        try:
+            results = count_locs(str(file))
+        except Exception as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(1)
+            
+    total_loc = sum(count for _, count in results)
+    
+    table = Table(title=f"LOC Analysis: {file.name}", show_footer=True)
+    table.add_column("File Path", style="cyan", no_wrap=True)
+    table.add_column("LOC", style="green", justify="right", footer=f"[bold green]{total_loc:,}[/bold green]")
+    
+    # Sort by LOC descending to show biggest files first
+    sorted_results = sorted(results, key=lambda x: x[1], reverse=True)
+
+    for path_str, loc_count in sorted_results:
+        if loc_count == 0:
+             table.add_row(f"[dim]{path_str} (Binary/Empty)[/dim]", "[dim]0[/dim]")
+        else:
+            table.add_row(path_str, f"{loc_count:,}")
+
+    console.print(table)
+    
+    # Fun summary panel
+    console.print(Panel(
+        f"[bold]Total LOC:[/bold] [green]{total_loc:,}[/green]\n[dim](Binary/Image files are ignored)[/dim]",
+        title="[bold blue]CodeTease Analytics[/bold blue]",
+        border_style="blue",
+        expand=False
+    ))
 
 # Helper for upload
 def _upload_chunk(url: str, file_path: Path, start: int, chunk_size: int, index: int, total_chunks: int, filename: str, headers: dict):

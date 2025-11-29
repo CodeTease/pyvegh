@@ -12,6 +12,7 @@ It delivers the raw performance of Rust (Zstd compression, Tar archiving, SHA256
 * **Modern CLI:** Built with `Typer` and `Rich` for a clean, professional command-line experience.
 * **Integrity:** Native SHA256 checksum verification plus instant metadata inspection (author, timestamp, comments) without unpacking.
 * **Smart Filtering:** Automatically respects `.veghignore` and `.gitignore` rules.
+* **Code Analytics:** Instant **LOC (Lines of Code)** counting inside snapshots without extraction.
 * **Network Ready:** Built-in `send` command to push snapshots to remote endpoints.
 
 ## Installation
@@ -58,6 +59,13 @@ vegh restore backup.snap ./restored-folder
 Send the snapshot to a remote server. (Now with chunking and --force-chunk option!)
 ```bash
 vegh send backup.snap https://api.teaserverse.online/test --auth YOUR_TOKEN --force-chunk
+```
+
+6. **Analytics (LOC)**
+
+Count Lines of Code instantly.
+```bash
+vegh loc backup.snap
 ```
 
 ## Library Usage

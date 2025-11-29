@@ -178,6 +178,45 @@ fn get_metadata(file_path: String) -> PyResult<String> {
     Err(PyValueError::new_err("Metadata not found in snapshot"))
 }
 
+#[pyfunction]
+fn count_locs(file_path: String) -> PyResult<Vec<(String, usize)>> {
+    let file = File::open(&file_path).map_err(|e| PyIOError::new_err(e.to_string()))?;
+    let decoder = zstd::stream::read::Decoder::new(file).unwrap();
+    let mut archive = tar::Archive::new(decoder);
+    
+    let mut results = Vec::new();
+
+    if let Ok(entries) = archive.entries() {
+        for entry in entries {
+            if let Ok(mut e) = entry {
+                let path = e.path().unwrap().into_owned();
+                let path_str = path.to_string_lossy().to_string();
+                
+                if path_str == ".vegh.json" { continue; }
+
+                // Attempt to read as text to count lines
+                // If it fails (UTF-8 error) or contains null bytes, treat as binary (0 LOC)
+                let mut content = String::new();
+                match e.read_to_string(&mut content) {
+                    Ok(_) => {
+                        // Check for null bytes (heuristic for binary files disguised as text)
+                        if content.contains('\0') {
+                            results.push((path_str, 0));
+                        } else {
+                            results.push((path_str, content.lines().count()));
+                        }
+                    },
+                    Err(_) => {
+                        // If we can't read it as String (e.g. invalid UTF-8), it's binary
+                        results.push((path_str, 0));
+                    }
+                }
+            }
+        }
+    }
+    Ok(results)
+}
+
 #[pymodule]
 #[pyo3(name = "_core")]
 fn pyvegh_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -186,5 +225,6 @@ fn pyvegh_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(list_files, m)?)?;
     m.add_function(wrap_pyfunction!(check_integrity, m)?)?;
     m.add_function(wrap_pyfunction!(get_metadata, m)?)?; 
+    m.add_function(wrap_pyfunction!(count_locs, m)?)?;
     Ok(())
 }
