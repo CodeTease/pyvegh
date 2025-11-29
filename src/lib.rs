@@ -21,14 +21,15 @@ struct VeghMetadata {
 }
 
 #[pyfunction]
-#[pyo3(signature = (source, output, level=3, comment=None, include=None, exclude=None))]
+#[pyo3(signature = (source, output, level=3, comment=None, include=None, exclude=None, callback=None))]
 fn create_snap(
     source: String, 
     output: String, 
     level: i32, 
     comment: Option<String>,
     include: Option<Vec<String>>,
-    exclude: Option<Vec<String>>
+    exclude: Option<Vec<String>>,
+    callback: Option<Py<PyAny>> // Modern PyO3 Type
 ) -> PyResult<usize> {
     let source_path = Path::new(&source);
     let output_path = Path::new(&output);
@@ -40,7 +41,6 @@ fn create_snap(
         author: "CodeTease (PyVegh)".to_string(),
         timestamp: Utc::now().timestamp(),
         comment: comment.unwrap_or_default(),
-        // Use the stable format version instead of the package version
         tool_version: SNAPSHOT_FORMAT_VERSION.to_string(),
     };
     let meta_json = serde_json::to_string_pretty(&meta).unwrap();
@@ -102,6 +102,15 @@ fn create_snap(
                 tar.append_path_with_name(path, name)
                     .map_err(|e| PyIOError::new_err(e.to_string()))?;
                 count += 1;
+
+                // --- PROGRESS REPORTING ---
+                if let Some(ref cb) = callback {
+                    if count % 50 == 0 {
+                        Python::with_gil(|py| {
+                            let _ = cb.bind(py).call1((count,));
+                        });
+                    }
+                }
             }
         }
     }
@@ -111,6 +120,68 @@ fn create_snap(
 
     Ok(count)
 }
+
+#[pyfunction]
+#[pyo3(signature = (source, include=None, exclude=None))]
+fn dry_run_snap(
+    source: String, 
+    include: Option<Vec<String>>,
+    exclude: Option<Vec<String>>
+) -> PyResult<Vec<(String, u64)>> {
+    // Replicates the traversal logic of create_snap exactly, but without compression.
+    // Returns a list of (relative_path, file_size_in_bytes).
+    
+    let source_path = Path::new(&source);
+    let mut results = Vec::new();
+    
+    // 1. Check Preserved Files first (mirroring create_snap logic)
+    for &name in PRESERVED_FILES {
+        let p = source_path.join(name);
+        if p.exists() {
+            if let Ok(meta) = fs::metadata(&p) {
+                results.push((name.to_string(), meta.len()));
+            }
+        }
+    }
+
+    // 2. Setup Walker & Overrides (Exact copy of create_snap logic)
+    let mut override_builder = OverrideBuilder::new(source_path);
+    if let Some(incs) = include {
+        for pattern in incs { let _ = override_builder.add(&format!("!{}", pattern)); }
+    }
+    if let Some(excs) = exclude {
+        for pattern in excs { let _ = override_builder.add(&pattern); }
+    }
+    
+    let overrides = override_builder.build()
+        .map_err(|e| PyIOError::new_err(format!("Override build fail: {}", e)))?;
+
+    let mut builder = WalkBuilder::new(source_path);
+    for &f in PRESERVED_FILES { builder.add_custom_ignore_filename(f); }
+    
+    builder.hidden(true).git_ignore(true).overrides(overrides);
+
+    // 3. Traversal
+    for res in builder.build() {
+        if let Ok(entry) = res {
+            let path = entry.path();
+            if path.is_file() {
+                // No need to check for output_abs collision in dry-run
+                
+                let name = path.strip_prefix(source_path).unwrap_or(path);
+                let name_str = name.to_string_lossy().to_string();
+
+                if PRESERVED_FILES.contains(&name_str.as_str()) { continue; }
+                
+                let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                results.push((name_str, size));
+            }
+        }
+    }
+
+    Ok(results)
+}
+
 
 #[pyfunction]
 #[pyo3(signature = (file_path, out_dir))]
@@ -221,6 +292,7 @@ fn count_locs(file_path: String) -> PyResult<Vec<(String, usize)>> {
 #[pyo3(name = "_core")]
 fn pyvegh_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(create_snap, m)?)?;
+    m.add_function(wrap_pyfunction!(dry_run_snap, m)?)?; // NEW
     m.add_function(wrap_pyfunction!(restore_snap, m)?)?;
     m.add_function(wrap_pyfunction!(list_files, m)?)?;
     m.add_function(wrap_pyfunction!(check_integrity, m)?)?;
