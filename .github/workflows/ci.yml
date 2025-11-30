@@ -1,0 +1,73 @@
+name: PyVegh CI 🧪
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.gitignore'
+  pull_request:
+    branches: [ "main", "master" ]
+
+# Cancel in-progress jobs on new pushes (saves GitHub Actions resources)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Job: Test Rust Core (Kept for speed)
+  rust-core:
+    name: Rust Core 🦀
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+      # Run logic tests only, no format checks
+      - run: cargo test --verbose
+
+  # Job: Test Python Binding + CLI Integration
+  integration-tests:
+    name: Integration 🐍 (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Shell script runs best on Linux/macOS (bash).
+        # Windows requires Git Bash config, so focusing on these 2 for integration for now.
+        os: [ubuntu-latest, macos-latest] 
+        python-version: ["3.10"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Build Deps
+        run: pip install maturin pytest
+
+      # Build and install module + CLI into path
+      - name: Build & Install
+        run: maturin develop --release
+
+      # Run Pytest (Unit/Smoke Test)
+      - name: Run Python Unit Tests
+        run: pytest tests/test_smoke.py
+
+      # Grant execution permissions for the script
+      - name: Make script executable
+        if: runner.os != 'Windows'
+        run: chmod +x tests/integration_test.sh
+
+      # Run Shell Script (Integration Test)
+      - name: Run CLI Integration Tests
+        shell: bash
+        run: ./tests/integration_test.sh
