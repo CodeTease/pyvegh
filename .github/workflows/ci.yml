@@ -54,9 +54,16 @@ jobs:
       - name: Install Build Deps
         run: pip install maturin pytest
 
-      # Build and install module + CLI into path
-      - name: Build & Install
-        run: maturin develop --release
+      # FIX: Use 'build' + 'pip install' instead of 'develop'
+      # 'develop' requires an active virtualenv, which is flaky in CI.
+      # This method also tests the actual wheel artifact users will get.
+      - name: Build Wheel
+        run: maturin build --release --out dist --find-interpreter
+
+      - name: Install Wheel
+        # Install the generated wheel using pip. 
+        # Shell wildcard expansion handles the exact filename.
+        run: pip install dist/pyvegh*.whl
 
       # Run Pytest (Unit/Smoke Test)
       - name: Run Python Unit Tests
