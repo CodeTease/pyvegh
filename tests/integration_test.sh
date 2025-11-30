@@ -67,9 +67,10 @@ vegh restore "$SNAP_FILE" "$RESTORE_DIR"
 # 6. Compare content (Diff)
 echo -e "${CYAN}🔍 Test 5: Comparing source vs restored...${NC}"
 
-# FIX: Compare the directories directly because PyVegh creates 'flat' archives.
-# It strips the root folder name during snap.
-diff -r "$SRC_DIR" "$RESTORE_DIR"
+# FIX: Compare the directories directly.
+# NOTE: We exclude '.veghcache' because it is created in source during runtime (Format V2)
+# but explicitly ignored/stripped from the snapshot.
+diff -r --exclude=".veghcache" --exclude="__pycache__" --exclude=".DS_Store" "$SRC_DIR" "$RESTORE_DIR"
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✔ Source and restored data MATCH 100%!${NC}"
@@ -90,4 +91,4 @@ echo -e "${GREEN}✔ LOC command runs successfully${NC}"
 echo -e "${CYAN}🧹 Cleaning up...${NC}"
 rm -rf $TEST_DIR
 
-echo -e "${GREEN}🎉🎉🎉 ALL TESTS PASSED! (FOR REAL THIS TIME) 🎉🎉🎉${NC}"
+echo -e "${GREEN}🎉🎉🎉 ALL TESTS PASSED! 🎉🎉🎉${NC}"

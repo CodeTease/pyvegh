@@ -74,8 +74,8 @@ LANG_MAP = {
     ".sql": ("SQL", "yellow"),
     ".md": ("Markdown", "white"),
     ".txt": ("Text", "white"),
-    ".ini": ("INI", "white"), # Added
-    ".conf": ("Config", "white"), # Added
+    ".ini": ("INI", "white"), 
+    ".conf": ("Config", "white"),
     
     # TeaserLang & CodeTease
     ".fdon": ("FDON", "bright_green"),
@@ -90,15 +90,15 @@ LANG_MAP = {
     ".r": ("R", "blue"),
     ".jl": ("Julia", "purple"),
     ".wasm": ("WebAssembly", "purple"), 
+    ".proto": ("Protobuf", "cyan"),
+    ".svelte": ("Svelte", "orange_red1"), 
+    ".log": ("Log", "dim white"),
+    ".prisma": ("Prisma", "white"),
+    ".graphql": ("GraphQL", "magenta"),
+    ".gql": ("GraphQL", "magenta"),
+    ".zig": ("Zig", "yellow"),
+    ".env": ("Env Config", "red"),
 }
-
-# --- LANGUAGE DEFINITIONS (ADDITIONS) ---
-# Thêm vào LANG_MAP
-# ".prisma": ("Prisma", "white"),
-# ".graphql": ("GraphQL", "magenta"),
-# ".gql": ("GraphQL", "magenta"),
-# ".zig": ("Zig", "yellow"),
-# ".env": ("Env Config", "red"),
 
 # --- FILENAME MAP (FIXED & MERGED) ---
 FILENAME_MAP = {
