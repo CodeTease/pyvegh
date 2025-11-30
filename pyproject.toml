@@ -20,6 +20,7 @@ dependencies = [
 
 [project.scripts]
 vegh = "vegh.cli:app"  # CLI entry point
+pyvegh = "vegh.cli:app" # Alternate
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
