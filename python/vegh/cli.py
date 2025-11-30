@@ -118,10 +118,15 @@ def check_sensitive(path: str) -> bool:
 
 @app.command()
 def config(
-    url: Optional[str] = typer.Option(None, help="Default server URL"),
-    auth: Optional[str] = typer.Option(None, help="Default Auth Token"),
+    url: Optional[str] = typer.Option(None, help="Set the default upload URL."),
+    auth: Optional[str] = typer.Option(None, help="Set the default authentication token."),
 ):
-    """⚙️ Configure default settings."""
+    """
+    ⚙️  Configure default settings.
+
+    Run without arguments to start [bold]Interactive Mode[/bold].
+    Settings are saved to [dim]~/.vegh_config.json[/dim].
+    """
     cfg = load_config()
     
     if not url and not auth:

@@ -1,76 +1,96 @@
 # 🥬 PyVegh
 
-**PyVegh** is the official Python binding for the Vegh snapshot engine, developed by CodeTease.
+**PyVegh** is the official Python binding for the Vegh snapshot engine, developed by **CodeTease**.
 
-It delivers the raw performance of Rust (Zstd compression, Tar archiving, SHA256 hashing) wrapped in a modern, flexible Python interface.
+It delivers the raw performance of Rust (Zstd multithreaded compression, Tar archiving, Blake3 hashing) wrapped in a modern, flexible Python interface.
 
 > "Tight packing, swift unpacking, no nonsense."
 
 ## Features
 
-* **Blazing Fast:** Core logic is implemented in Rust using PyO3, ensuring near-native speed.
-* **Modern CLI:** Built with `Typer` and `Rich` for a clean, professional command-line experience.
-* **Integrity:** Native SHA256 checksum verification plus instant metadata inspection (author, timestamp, comments) without unpacking.
+* **Blazing Fast:** Core logic is implemented in Rust using PyO3, utilizing **Zstd Multithreading** and the next-gen **Blake3** hashing algorithm.
+* **Analytics Dashboard:** Instantly visualize your project's Lines of Code (LOC) with a beautiful terminal dashboard—no extraction required.
+* **Dry-Run Mode:** Simulate snapshot creation to check file sizes and detect sensitive data risks before packing.
+* **Integrity v2:** Verify data integrity at lightning speed with **Blake3** and inspect metadata (author, timestamp, tool version) without unpacking.
+* **Smart Upload:** Built-in `send` command supporting concurrent **Chunked Uploads** for large files.
 * **Smart Filtering:** Automatically respects `.veghignore` and `.gitignore` rules.
-* **Code Analytics:** Instant **LOC (Lines of Code)** counting inside snapshots without extraction.
-* **Network Ready:** Built-in `send` command to push snapshots to remote endpoints.
 
 ## Installation
 
-Install directly from PyPI (or build locally using Maturin):
+Install directly from PyPI:
 ```bash
 pip install pyvegh
+````
+
+Or build from source (requires Rust):
+
+```bash
+maturin develop --release
 ```
 
 ## CLI Usage
 
-PyVegh provides a command-line interface via the `vegh` command.
+PyVegh provides a powerful command-line interface via the `vegh` (or `pyvegh`) command.
 
-1. **Create a snapshot:**
+### 1\. Configuration 
 
-Pack a directory into a highly compressed snapshot.
+Set up your default server URL and Auth Token so you don't have to type them every time.
+
 ```bash
-vegh snap ./my-project --output backup.snap
+vegh config
+# Or one-liner:
+vegh config --url https://api.teaserverse.online/test --auth YOUR_TOKEN
 ```
 
-2. **Inspect & Verify**
+### 2\. Create Snapshot
 
-Check file integrity and view embedded metadata (Author, Timestamp, Tool Version).
+Pack a directory into a highly compressed snapshot.
+
+```bash
+# Basic snapshot
+vegh snap ./my-project --output backup.snap
+
+# Dry-Run (Simulation) - Check for large/sensitive files
+vegh snap ./my-project --dry-run
+```
+
+### 3\. Analytics 
+
+View the CodeTease Analytics Dashboard to break down your project by language and lines of code.
+
+```bash
+vegh loc backup.snap
+```
+
+### 4\. Inspect & Verify
+
+Check file integrity (Blake3) and view embedded metadata.
+
 ```bash
 vegh check backup.snap
 ```
 
-3. **List Contents**
-
-View files inside the snapshot without extracting.
-```bash
-vegh list backup.snap
-```
-
-4. **Restore**
+### 5\. Restore
 
 Restore the snapshot to a target directory.
+
 ```bash
 vegh restore backup.snap ./restored-folder
 ```
 
-5. **Send**
+### 6\. Send
 
-Send the snapshot to a remote server. (Now with chunking and --force-chunk option!)
+Send the snapshot to a remote server. PyVegh now supports **Chunked Uploads** for reliability.
+
 ```bash
-vegh send backup.snap https://api.teaserverse.online/test --auth YOUR_TOKEN --force-chunk
-```
-
-6. **Analytics (LOC)**
-
-Count Lines of Code instantly.
-```bash
-vegh loc backup.snap
+# Auto-detects if chunking is needed, or force it:
+vegh send backup.snap --force-chunk
 ```
 
 ## Library Usage
 
 You can also use PyVegh as a library in your own Python scripts:
+
 ```python
 import json
 from vegh import create_snap, restore_snap, check_integrity, get_metadata
@@ -80,12 +100,11 @@ from vegh import create_snap, restore_snap, check_integrity, get_metadata
 count = create_snap("src_folder", "backup.snap", comment="Automated backup")
 print(f"Compressed {count} files.")
 
-# 2. Check integrity (SHA256)
+# 2. Check integrity (Now uses Blake3)
 checksum = check_integrity("backup.snap")
-print(f"SHA256: {checksum}")
+print(f"Blake3 Hash: {checksum}")
 
 # 3. Read Metadata (Fast, no unpacking)
-# Returns a JSON string containing author, timestamp, etc.
 raw_meta = get_metadata("backup.snap")
 meta = json.loads(raw_meta)
 print(f"Snapshot created by: {meta.get('author')}")
