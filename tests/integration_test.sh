@@ -30,7 +30,9 @@ dd if=/dev/urandom of="$SRC_DIR/random.bin" bs=1M count=1 2>/dev/null
 
 # 2. Test SNAP command
 echo -e "${CYAN}📸 Test 1: vegh snap...${NC}"
+# Snap the CONTENT of SRC_DIR
 vegh snap "$SRC_DIR" --output "$SNAP_FILE" --comment "CI Test Run"
+
 if [ -f "$SNAP_FILE" ]; then
     echo -e "${GREEN}✔ Snap file created!${NC}"
 else
@@ -38,7 +40,7 @@ else
     exit 1
 fi
 
-# 3. Test LIST command (Check if output contains file names)
+# 3. Test LIST command
 echo -e "${CYAN}📜 Test 2: vegh list...${NC}"
 LIST_OUTPUT=$(vegh list "$SNAP_FILE" --flat)
 if echo "$LIST_OUTPUT" | grep -q "random.bin"; then
@@ -48,7 +50,7 @@ else
     exit 1
 fi
 
-# 4. Test CHECK command (Integrity)
+# 4. Test CHECK command
 echo -e "${CYAN}✅ Test 3: vegh check...${NC}"
 if vegh check "$SNAP_FILE" | grep -q "Valid Snapshot"; then
     echo -e "${GREEN}✔ Integrity check passed${NC}"
@@ -59,26 +61,28 @@ fi
 
 # 5. Test RESTORE command
 echo -e "${CYAN}📦 Test 4: vegh restore...${NC}"
+# Restore directly to RESTORE_DIR
 vegh restore "$SNAP_FILE" "$RESTORE_DIR"
 
 # 6. Compare content (Diff)
 echo -e "${CYAN}🔍 Test 5: Comparing source vs restored...${NC}"
-# Note: PyVegh packs the root folder inside, so extraction results in $RESTORE_DIR/source
-# Adjust path logic if structure changes.
 
-# Recursive diff, silent if identical
-diff -r "$SRC_DIR" "$RESTORE_DIR/source"
+# FIX: Compare the directories directly because PyVegh creates 'flat' archives.
+# It strips the root folder name during snap.
+diff -r "$SRC_DIR" "$RESTORE_DIR"
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✔ Source and restored data MATCH 100%!${NC}"
 else
     echo -e "${RED}✘ Data mismatch detected!${NC}"
+    # Show what's in there for debugging
+    echo "Content of restored dir:"
+    ls -R "$RESTORE_DIR"
     exit 1
 fi
 
 # 7. Test LOC command
 echo -e "${CYAN}📊 Test 6: vegh loc...${NC}"
-# Run to ensure no crashes
 vegh loc "$SNAP_FILE" --raw > /dev/null
 echo -e "${GREEN}✔ LOC command runs successfully${NC}"
 
@@ -86,4 +90,4 @@ echo -e "${GREEN}✔ LOC command runs successfully${NC}"
 echo -e "${CYAN}🧹 Cleaning up...${NC}"
 rm -rf $TEST_DIR
 
-echo -e "${GREEN}🎉🎉🎉 ALL TESTS PASSED! CODE IS SOLID! 🎉🎉🎉${NC}"
+echo -e "${GREEN}🎉🎉🎉 ALL TESTS PASSED! (FOR REAL THIS TIME) 🎉🎉🎉${NC}"
