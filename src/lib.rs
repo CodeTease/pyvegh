@@ -1,16 +1,24 @@
 use pyo3::prelude::*;
 use pyo3::exceptions::{PyIOError, PyValueError};
+use std::collections::HashMap;
 use std::fs::{self, File};
-use std::io::Read;
-use std::path::Path;
+use std::io::{Read}; 
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 use ignore::{WalkBuilder, overrides::OverrideBuilder};
-use sha2::{Digest, Sha256};
+use blake3::Hasher; // Switch to Blake3
+use memmap2::MmapOptions; // For fast hashing
 use serde::{Serialize, Deserialize};
 use chrono::Utc;
 
-const PRESERVED_FILES: &[&str] = &[".veghignore", ".gitignore"];
-// Define the file format version. Bump this ONLY when the snapshot structure changes.
-const SNAPSHOT_FORMAT_VERSION: &str = "1";
+const PRESERVED_FILES: &[&str] = &[".veghignore", ".gitignore", ".dockerignore", ".npmignore"];
+const CACHE_DIR: &str = ".veghcache";
+const CACHE_FILE: &str = "index.json";
+
+// [FV 2] Format Version bumped to 2
+const SNAPSHOT_FORMAT_VERSION: &str = "2"; 
+// [Requirement] Always mimick Vegh 0.3.0 regardless of PyVegh version
+const VEGH_COMPAT_VERSION: &str = "0.3.0";
 
 #[derive(Serialize, Deserialize)]
 struct VeghMetadata {
@@ -18,18 +26,61 @@ struct VeghMetadata {
     timestamp: i64,
     comment: String,
     tool_version: String,
+    format_version: String, // Added format version field
+}
+
+// --- Cache Structures (Matched with Vegh CLI) ---
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct FileCacheEntry {
+    size: u64,
+    modified: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Default)]
+struct VeghCache {
+    last_snapshot: i64,
+    files: HashMap<String, FileCacheEntry>,
+}
+
+// Helper to handle Cache I/O
+fn get_cache_path(source: &Path) -> PathBuf {
+    source.join(CACHE_DIR).join(CACHE_FILE)
+}
+
+fn load_cache(source: &Path) -> VeghCache {
+    let cache_path = get_cache_path(source);
+    if cache_path.exists() {
+        if let Ok(file) = File::open(&cache_path) {
+             if let Ok(cache) = serde_json::from_reader(file) {
+                return cache;
+             }
+        }
+        // If corrupt, clean up
+        let _ = fs::remove_dir_all(source.join(CACHE_DIR));
+    }
+    VeghCache::default()
+}
+
+fn save_cache(source: &Path, cache: &VeghCache) -> std::io::Result<()> {
+    let cache_dir = source.join(CACHE_DIR);
+    if !cache_dir.exists() {
+        fs::create_dir(&cache_dir)?;
+    }
+    let file = File::create(get_cache_path(source))?;
+    serde_json::to_writer_pretty(file, cache)?;
+    Ok(())
 }
 
 #[pyfunction]
-#[pyo3(signature = (source, output, level=3, comment=None, include=None, exclude=None))]
+#[pyo3(signature = (source, output, level=3, comment=None, include=None, exclude=None, no_cache=false))]
 fn create_snap(
     source: String, 
     output: String, 
     level: i32, 
     comment: Option<String>,
     include: Option<Vec<String>>,
-    exclude: Option<Vec<String>>
-    // Callback removed for MAXIMUM SPEED 🚀
+    exclude: Option<Vec<String>>,
+    no_cache: bool // New param
 ) -> PyResult<usize> {
     let source_path = Path::new(&source);
     let output_path = Path::new(&output);
@@ -37,18 +88,35 @@ fn create_snap(
     
     let output_abs = fs::canonicalize(output_path).unwrap_or_else(|_| output_path.to_path_buf());
 
+    // [FV 2] Cache Initialization
+    let mut cache = if no_cache {
+        VeghCache::default()
+    } else {
+        load_cache(source_path)
+    };
+    let mut new_cache_files = HashMap::new();
+
+    // [FV 2] Metadata Update
     let meta = VeghMetadata {
         author: "CodeTease (PyVegh)".to_string(),
         timestamp: Utc::now().timestamp(),
         comment: comment.unwrap_or_default(),
-        tool_version: SNAPSHOT_FORMAT_VERSION.to_string(),
+        tool_version: VEGH_COMPAT_VERSION.to_string(), // Force 0.3.0
+        format_version: SNAPSHOT_FORMAT_VERSION.to_string(),
     };
     let meta_json = serde_json::to_string_pretty(&meta).unwrap();
 
-    let encoder = zstd::stream::write::Encoder::new(file, level)
+    // [FV 2] Multithreading Zstd
+    let mut encoder = zstd::stream::write::Encoder::new(file, level)
         .map_err(|e| PyIOError::new_err(e.to_string()))?;
+    
+    // Enable multithreading based on available cores
+    let workers = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+    encoder.multithread(workers as u32).map_err(|e| PyIOError::new_err(format!("Zstd MT error: {}", e)))?;
+
     let mut tar = tar::Builder::new(encoder);
 
+    // Meta (Hidden)
     let mut header = tar::Header::new_gnu();
     header.set_path(".vegh.json").unwrap();
     header.set_size(meta_json.len() as u64);
@@ -59,6 +127,7 @@ fn create_snap(
 
     let mut count = 0;
     
+    // Preserved Files
     for &name in PRESERVED_FILES {
         let p = source_path.join(name);
         if p.exists() {
@@ -68,18 +137,17 @@ fn create_snap(
         }
     }
 
+    // Builder Configuration
     let mut override_builder = OverrideBuilder::new(source_path);
     if let Some(incs) = include {
-        for pattern in incs {
-            let _ = override_builder.add(&format!("!{}", pattern)); 
-        }
+        for pattern in incs { let _ = override_builder.add(&format!("!{}", pattern)); }
     }
     if let Some(excs) = exclude {
-        for pattern in excs {
-            let _ = override_builder.add(&pattern); 
-        }
+        for pattern in excs { let _ = override_builder.add(&pattern); }
     }
-    
+    // Ignore cache dir
+    let _ = override_builder.add(&format!("!{}", CACHE_DIR));
+
     let overrides = override_builder.build()
         .map_err(|e| PyIOError::new_err(format!("Override build fail: {}", e)))?;
 
@@ -97,15 +165,34 @@ fn create_snap(
                 }
 
                 let name = path.strip_prefix(source_path).unwrap_or(path);
-                if PRESERVED_FILES.contains(&name.to_string_lossy().as_ref()) { continue; }
+                let name_str = name.to_string_lossy().to_string();
+                if PRESERVED_FILES.contains(&name_str.as_str()) { continue; }
+
+                // Cache Logic (Metadata Check)
+                let metadata = path.metadata().map_err(|e| PyIOError::new_err(e.to_string()))?;
+                let modified = metadata.modified()
+                    .unwrap_or(SystemTime::UNIX_EPOCH)
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                let size = metadata.len();
+
+                // Note: We still pack the file because this is a full snapshot tool, 
+                // but we update the cache for future diff/sync capabilities.
+                new_cache_files.insert(name_str, FileCacheEntry { size, modified });
                 
                 tar.append_path_with_name(path, name)
                     .map_err(|e| PyIOError::new_err(e.to_string()))?;
                 count += 1;
-                
-                // No callback check here. Pure Rust Iteration.
             }
         }
+    }
+
+    // Save Cache
+    cache.files = new_cache_files;
+    cache.last_snapshot = Utc::now().timestamp();
+    if !no_cache {
+        let _ = save_cache(source_path, &cache); // Ignore save errors
     }
 
     let enc = tar.into_inner().unwrap();
@@ -124,6 +211,7 @@ fn dry_run_snap(
     let source_path = Path::new(&source);
     let mut results = Vec::new();
     
+    // Logic similar to create_snap but without writing/cache updates
     for &name in PRESERVED_FILES {
         let p = source_path.join(name);
         if p.exists() {
@@ -140,6 +228,7 @@ fn dry_run_snap(
     if let Some(excs) = exclude {
         for pattern in excs { let _ = override_builder.add(&pattern); }
     }
+    let _ = override_builder.add(&format!("!{}", CACHE_DIR));
     
     let overrides = override_builder.build()
         .map_err(|e| PyIOError::new_err(format!("Override build fail: {}", e)))?;
@@ -172,6 +261,7 @@ fn restore_snap(file_path: String, out_dir: String) -> PyResult<()> {
     if !out.exists() { fs::create_dir_all(out).map_err(|e| PyIOError::new_err(e.to_string()))?; }
 
     let file = File::open(&file_path).map_err(|e| PyIOError::new_err(e.to_string()))?;
+    // Standard Decoder works with Multithreaded streams automatically (Backward Compatible)
     let decoder = zstd::stream::read::Decoder::new(file).unwrap();
     let mut archive = tar::Archive::new(decoder);
 
@@ -203,10 +293,22 @@ fn list_files(file_path: String) -> PyResult<Vec<String>> {
 
 #[pyfunction]
 fn check_integrity(file_path: String) -> PyResult<String> {
-    let mut f = File::open(file_path).map_err(|e| PyIOError::new_err(e.to_string()))?;
-    let mut sha = Sha256::new();
-    std::io::copy(&mut f, &mut sha).map_err(|e| PyIOError::new_err(e.to_string()))?;
-    Ok(hex::encode(sha.finalize()))
+    let file = File::open(&file_path).map_err(|e| PyIOError::new_err(e.to_string()))?;
+    
+    // [FV 2] Use Blake3 for hashing
+    // Attempt Memory Map for speed, fallback to read
+    let hash = if let Ok(mmap) = unsafe { MmapOptions::new().map(&file) } {
+        let mut hasher = Hasher::new();
+        hasher.update_rayon(&mmap);
+        hasher.finalize().to_hex().to_string()
+    } else {
+        let mut f = File::open(&file_path).map_err(|e| PyIOError::new_err(e.to_string()))?;
+        let mut hasher = Hasher::new();
+        std::io::copy(&mut f, &mut hasher).map_err(|e| PyIOError::new_err(e.to_string()))?;
+        hasher.finalize().to_hex().to_string()
+    };
+    
+    Ok(hash)
 }
 
 #[pyfunction]

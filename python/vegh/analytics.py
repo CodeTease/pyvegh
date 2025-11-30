@@ -11,60 +11,129 @@ from rich.align import Align
 
 # --- LANGUAGE DEFINITIONS ---
 # Map extension -> (Language Name, Color)
+# --- LANGUAGE DEFINITIONS (UPDATED) ---
 LANG_MAP = {
+    # Systems & Low Level
     ".rs": ("Rust", "red"),
-    ".py": ("Python", "blue"),
-    ".pyi": ("Python", "blue"),
-    ".js": ("JavaScript", "yellow"),
-    ".jsx": ("JavaScript", "yellow"),
-    ".mjs": ("JavaScript", "yellow"),
-    ".ts": ("TypeScript", "cyan"),
-    ".tsx": ("TypeScript", "cyan"),
-    ".html": ("HTML", "magenta"),
-    ".css": ("CSS", "blue_violet"),
-    ".scss": ("SCSS", "magenta"),
     ".c": ("C", "white"),
     ".h": ("C/C++", "white"),
     ".cpp": ("C++", "blue"),
     ".hpp": ("C++", "blue"),
     ".cc": ("C++", "blue"),
+    ".cxx": ("C++", "blue"), 
     ".go": ("Go", "cyan"),
+    ".asm": ("Assembly", "white"),
+    ".s": ("Assembly", "white"), 
+    ".S": ("Assembly", "white"),
+
+    # Enterprise & Mobile
     ".java": ("Java", "red"),
-    ".rb": ("Ruby", "red"),
+    ".kt": ("Kotlin", "magenta"),
+    ".kts": ("Kotlin", "magenta"),
+    ".cs": ("C#", "green"),
+    ".swift": ("Swift", "bright_red"), 
+    ".m": ("Objective-C", "blue"),
+    ".dart": ("Dart", "cyan"),
+
+    # Web & Scripting
+    ".py": ("Python", "blue"),
+    ".pyi": ("Python", "blue"),
+    ".ipynb": ("Jupyter", "yellow"),
+    ".js": ("JavaScript", "yellow"),
+    ".jsx": ("JavaScript (React)", "yellow"),
+    ".mjs": ("JavaScript (ESM)", "yellow"),
+    ".cjs": ("JavaScript (CJS)", "yellow"), 
+    ".ts": ("TypeScript", "cyan"),
+    ".tsx": ("TypeScript (React)", "cyan"),
+    ".vue": ("Vue", "green"),
+    ".svelte": ("Svelte", "red"),
+    ".html": ("HTML", "magenta"),
+    ".htm": ("HTML", "magenta"),
+    ".css": ("CSS", "blue_violet"),
+    ".scss": ("SCSS", "magenta"),
+    ".less": ("LESS", "blue"),
     ".php": ("PHP", "magenta"),
+    ".rb": ("Ruby", "red"),
+    ".rake": ("Ruby", "red"),
+    ".lua": ("Lua", "blue"),
+    ".pl": ("Perl", "blue"),
     ".sh": ("Shell", "green"),
     ".bash": ("Shell", "green"),
     ".zsh": ("Shell", "green"),
+    ".ps1": ("PowerShell", "blue"),
+    ".psm1": ("PowerShell", "blue"),
+    ".bat": ("Batch", "yellow"),
+    ".cmd": ("Batch", "yellow"),
+
+    # Data & Config
     ".json": ("JSON", "yellow"),
     ".toml": ("TOML", "yellow"),
     ".yaml": ("YAML", "yellow"),
     ".yml": ("YAML", "yellow"),
+    ".xml": ("XML", "magenta"),
+    ".sql": ("SQL", "yellow"),
     ".md": ("Markdown", "white"),
     ".txt": ("Text", "white"),
-    ".sql": ("SQL", "yellow"),
+    ".ini": ("INI", "white"), # Added
+    ".conf": ("Config", "white"), # Added
+    
+    # TeaserLang & CodeTease
+    ".fdon": ("FDON", "bright_green"),
+    ".fwon": ("FWON", "bright_green"),
+    ".bxson": ("BXSON", "bright_green"),
+
+    # Infrastructure & Others
     ".dockerfile": ("Dockerfile", "blue"),
+    ".tf": ("Terraform", "magenta"),
+    ".nix": ("Nix", "cyan"),
+    ".sol": ("Solidity", "white"),
+    ".r": ("R", "blue"),
+    ".jl": ("Julia", "purple"),
+    ".wasm": ("WebAssembly", "purple"), 
 }
 
-# Filenames that imply a language without extension
+# --- LANGUAGE DEFINITIONS (ADDITIONS) ---
+# Thêm vào LANG_MAP
+# ".prisma": ("Prisma", "white"),
+# ".graphql": ("GraphQL", "magenta"),
+# ".gql": ("GraphQL", "magenta"),
+# ".zig": ("Zig", "yellow"),
+# ".env": ("Env Config", "red"),
+
+# --- FILENAME MAP (FIXED & MERGED) ---
 FILENAME_MAP = {
     "dockerfile": ("Dockerfile", "blue"),
     "makefile": ("Makefile", "white"),
+    "rakefile": ("Ruby", "red"),
+    "gemfile": ("Ruby Config", "red"),
     "cargo.toml": ("Cargo", "red"),
     "pyproject.toml": ("Python Config", "blue"),
     "package.json": ("NPM Config", "yellow"),
+    "tsconfig.json": ("TS Config", "cyan"),
+    "go.mod": ("Go Module", "cyan"),
+    "go.sum": ("Go Sum", "cyan"),
+    ".gitignore": ("Git Config", "white"),
+    ".dockerignore": ("Docker Ignore", "blue"), 
+    ".npmignore": ("NPM Ignore", "yellow"),
+    "vagrantfile": ("Vagrant", "blue"),
+    "jenkinsfile": ("Groovy", "white"),
+    "wrangler.toml": ("Cloudflare", "orange3"), 
+    "vercel.json": ("Vercel", "white"),    
+    "next.config.js": ("Next.js Config", "white"),
 }
 
 class ProjectStats:
     def __init__(self):
         self.total_files = 0
         self.total_loc = 0
-        self.lang_stats: Dict[str, Dict] = {} # {"Rust": {"files": 0, "loc": 0, "color": "red"}}
+        self.lang_stats: Dict[str, Dict] = {} 
 
     def add_file(self, path_str: str, loc: int):
         self.total_files += 1
         self.total_loc += loc
         
         path = Path(path_str)
+        # .lower() handles both .s and .S
         ext = path.suffix.lower()
         name = path.name.lower()
         
@@ -85,15 +154,13 @@ class ProjectStats:
 
 def _make_bar(label: str, percent: float, color: str, width: int = 30) -> Text:
     """Manually renders a progress bar using unicode blocks."""
-    # Logic: Calculate filled blocks based on width
     filled_len = int((percent / 100.0) * width)
     unfilled_len = width - filled_len
     
-    # Use solid block for filled, shade for empty
     bar_str = ("█" * filled_len) + ("░" * unfilled_len)
     
     text = Text()
-    text.append(f"{label:<12}", style=f"bold {color}")
+    text.append(f"{label:<20}", style=f"bold {color}")
     text.append(f"{bar_str} ", style=color)
     text.append(f"{percent:>5.1f}%", style="bold white")
     return text
@@ -108,10 +175,9 @@ def render_dashboard(console: Console, file_name: str, raw_results: List[Tuple[s
             stats.add_file(path, loc)
     
     if stats.total_loc == 0:
-        console.print("[yellow]No code detected (or binary only).[/yellow]")
+        console.print("[yellow]No code detected (or binary only). Is this a ghost project?[/yellow]")
         return
 
-    # Sort languages by LOC desc
     sorted_langs = sorted(
         stats.lang_stats.items(), 
         key=lambda item: item[1]['loc'], 
@@ -158,18 +224,17 @@ def render_dashboard(console: Console, file_name: str, raw_results: List[Tuple[s
     ))
 
     # --- Right: Custom Manual Bar Chart ---
-    # We build the chart manually to avoid dependency on rich.bar_chart
     chart_content = Text()
     
-    # Take Top 10 languages
-    for i, (lang, data) in enumerate(sorted_langs[:10]):
+    # Take Top 12 languages
+    for i, (lang, data) in enumerate(sorted_langs[:12]):
         percent = (data['loc'] / stats.total_loc) * 100
         bar = _make_bar(lang, percent, data['color'])
         chart_content.append(bar)
         chart_content.append("\n")
     
-    if len(sorted_langs) > 10:
-        chart_content.append(f"\n... and {len(sorted_langs) - 10} others", style="dim italic")
+    if len(sorted_langs) > 12:
+        chart_content.append(f"\n... and {len(sorted_langs) - 12} others", style="dim italic")
 
     layout["right"].update(Panel(
         Align.center(chart_content, vertical="middle"), 
@@ -185,11 +250,24 @@ def render_dashboard(console: Console, file_name: str, raw_results: List[Tuple[s
 
     comment = "Code Hard, Play Hard! 🚀"
     
+    # Logic Fun Comment
     if top_lang == "Rust": comment = "Blazingly Fast! 🦀"
     elif top_lang == "Python": comment = "Snake Charmer! 🐍"
-    elif top_lang == "JavaScript" or top_lang == "TypeScript": comment = "Web Scale! 🌐"
-    elif top_lang == "C" or top_lang == "C++": comment = "Low Level Wizardry! 🧙‍♂️"
-    elif top_lang == "HTML": comment = "How To Meet Ladies? 😉" 
+    elif "React" in top_lang: comment = "Component Heaven! ⚛️"
+    elif top_lang in ["JavaScript", "TypeScript", "Vue", "Svelte"]: comment = "Web Scale! 🌐"
+    elif top_lang in ["Assembly", "C", "C++"]: comment = "Low Level Wizardry! 🧙‍♂️"
+    elif top_lang in ["FDON", "FWON", "BXSON"]: comment = "CodeTease Inside! ⚡"
+    elif top_lang == "HTML": comment = "How To Meet Ladies? 😉"
+    elif top_lang == "Go": comment = "Gopher it! 🐹"
+    elif top_lang == "Java": comment = "Enterprise Grade! ☕"
+    elif top_lang == "C#": comment = "Microsoft Magic! 🪟"
+    elif top_lang == "PHP": comment = "Elephant in the room! 🐘"
+    elif top_lang == "Swift": comment = "Feeling Swift? 🍏"
+    elif top_lang == "Dart": comment = "Fluttering away! 🐦"
+    elif top_lang == "Solidity": comment = "To The Moon! 🚀🌑"
+    elif top_lang == "SQL": comment = "DROP TABLE production; 💀"
+    elif top_lang == "Terraform": comment = "Infrastructure as Code! 🏗️"
+    elif top_lang == "Dockerfile": comment = "Containerized! 🐳" 
 
     summary = f"[bold]Total LOC:[/bold] [green]{stats.total_loc:,}[/green] | [bold]Analyzed Files:[/bold] {stats.total_files} | [italic]{comment}[/italic]"
     

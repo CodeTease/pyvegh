@@ -1,6 +1,6 @@
 [package]
 name = "pyvegh"
-version = "0.2.5"
+version = "0.3.0"
 edition = "2024"
 authors = ["CodeTease"]
 
@@ -13,10 +13,15 @@ pyo3 = { version = "0.27.1", features = ["extension-module", "abi3-py38"] }
 
 # Core Logic Deps
 tar = "0.4"
-zstd = "0.13"
+# Kích hoạt zstdmt (multithread) cho zstd
+zstd = { version = "0.13", features = ["zstdmt"] } 
 ignore = "0.4"
-sha2 = "0.10"
+
+# Hashing & Integrity (FV 2 uses Blake3)
+blake3 = { version = "1.5", features = ["rayon", "mmap"] }
 hex = "0.4"
+memmap2 = "0.9"
+
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

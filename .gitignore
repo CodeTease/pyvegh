@@ -41,5 +41,6 @@ venv.bak/
 .idea
 *.swp
 
-# Internal Snap files
+# Internal files
 *.snap
+.veghcache/

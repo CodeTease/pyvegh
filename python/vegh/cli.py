@@ -289,13 +289,20 @@ def check(file: Path = typer.Argument(..., help=".snap file")):
             meta = json.loads(raw_meta)
             ts = meta.get("timestamp", 0)
             date_str = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+            
             grid = Table.grid(padding=1)
             grid.add_column(style="bold cyan", justify="right")
             grid.add_column(style="white")
-            grid.add_row("SHA256:", f"[dim]{h}[/dim]")
+            
+            # Updated to match Blake3 and Format V2
+            grid.add_row("Blake3:", f"[dim]{h}[/dim]")
             grid.add_row("Author:", meta.get("author", "Unknown"))
             grid.add_row("Created:", date_str)
-            grid.add_row("Format:", meta.get("tool_version", "Unknown"))
+            
+            # Separate Tool Version vs File Format Version
+            grid.add_row("Vegh Ver:", meta.get("tool_version", "Unknown"))
+            grid.add_row("Format:", f"[bold]v{meta.get('format_version', '1')}[/bold]")
+            
             if meta.get("comment"): grid.add_row("Comment:", f"[italic]{meta['comment']}[/italic]")
             console.print(Panel(grid, title=f"[bold green]✔ Valid Snapshot ({file.name})[/bold green]", border_style="green"))
         except Exception as e:
