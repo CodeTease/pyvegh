@@ -24,7 +24,12 @@ LANG_MAP = {
     ".go": ("Go", "cyan"),
     ".asm": ("Assembly", "white"),
     ".s": ("Assembly", "white"), 
-    ".S": ("Assembly", "white"),
+    ".zig": ("Zig", "yellow"),
+    ".f90": ("Fortran", "magenta"),
+    ".f95": ("Fortran", "magenta"),
+    ".f03": ("Fortran", "magenta"),
+    ".f08": ("Fortran", "magenta"),
+    ".f": ("Fortran", "magenta"),
 
     # Enterprise & Mobile
     ".java": ("Java", "red"),
@@ -96,8 +101,8 @@ LANG_MAP = {
     ".prisma": ("Prisma", "white"),
     ".graphql": ("GraphQL", "magenta"),
     ".gql": ("GraphQL", "magenta"),
-    ".zig": ("Zig", "yellow"),
     ".env": ("Env Config", "red"),
+    ".lock": ("Lock File", "dim white"),
 }
 
 # --- FILENAME MAP (FIXED & MERGED) ---
@@ -110,16 +115,25 @@ FILENAME_MAP = {
     "pyproject.toml": ("Python Config", "blue"),
     "package.json": ("NPM Config", "yellow"),
     "tsconfig.json": ("TS Config", "cyan"),
+    "webpack.config.js": ("Webpack Config", "yellow"),
     "go.mod": ("Go Module", "cyan"),
     "go.sum": ("Go Sum", "cyan"),
     ".gitignore": ("Git Config", "white"),
     ".dockerignore": ("Docker Ignore", "blue"), 
     ".npmignore": ("NPM Ignore", "yellow"),
+    ".veghignore": ("Vegh Ignore", "bright_green"),
+    "build.gradle": ("Gradle", "green"),
+    "build.gradle.kts": ("Gradle Kotlin", "green"),
+    "settings.gradle": ("Gradle Settings", "green"),
+    "settings.gradle.kts": ("Gradle Settings Kotlin", "green"),
+    "pom.xml": ("Maven", "red"),
     "vagrantfile": ("Vagrant", "blue"),
     "jenkinsfile": ("Groovy", "white"),
     "wrangler.toml": ("Cloudflare", "orange3"), 
     "vercel.json": ("Vercel", "white"),    
     "next.config.js": ("Next.js Config", "white"),
+    "nuxt.config.js": ("Nuxt.js Config", "green"),
+    "gatsby-config.js": ("Gatsby Config", "purple"),
 }
 
 class ProjectStats:
@@ -256,7 +270,7 @@ def render_dashboard(console: Console, file_name: str, raw_results: List[Tuple[s
     elif "React" in top_lang: comment = "Component Heaven! ⚛️"
     elif top_lang in ["JavaScript", "TypeScript", "Vue", "Svelte"]: comment = "Web Scale! 🌐"
     elif top_lang in ["Assembly", "C", "C++"]: comment = "Low Level Wizardry! 🧙‍♂️"
-    elif top_lang in ["FDON", "FWON", "BXSON"]: comment = "CodeTease Inside! ⚡"
+    elif top_lang in ["FDON", "FWON", "BXSON"]: comment = "Teasers! ⚡"
     elif top_lang == "HTML": comment = "How To Meet Ladies? 😉"
     elif top_lang == "Go": comment = "Gopher it! 🐹"
     elif top_lang == "Java": comment = "Enterprise Grade! ☕"

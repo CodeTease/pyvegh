@@ -5,6 +5,8 @@ import requests
 import math
 import re
 import os
+import sys 
+import subprocess 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
@@ -31,7 +33,7 @@ except ImportError:
 
 app = typer.Typer(
     name="vegh",
-    help="🥬 Vegh (Python Edition) - The CodeTease Snapshot Tool",
+    help="Vegh (Python Edition) - The Snapshot Tool",
     add_completion=False,
     no_args_is_help=True,
     rich_markup_mode="rich"
@@ -40,6 +42,7 @@ console = Console()
 
 # Configuration Path
 CONFIG_FILE = Path.home() / ".vegh_config.json"
+HOOKS_FILE = ".veghhooks.json"
 
 # Constants
 CHUNK_THRESHOLD = 100 * 1024 * 1024  # 100MB
@@ -78,7 +81,8 @@ def format_bytes(size):
     return f"{size:.2f} {power_labels[n]}B"
 
 def build_tree(path_list: List[str], root_name: str) -> Tree:
-    tree = Tree(f"[bold cyan]📦 {root_name}[/bold cyan]")
+    # ASCII style tree root
+    tree = Tree(f"[bold cyan][ROOT] {root_name}[/bold cyan]")
     folder_map = {"": tree}
 
     for path in sorted(path_list):
@@ -101,7 +105,7 @@ def build_tree(path_list: List[str], root_name: str) -> Tree:
                     else:
                         parent_node.add(f"[green]{part}[/green]")
                 else:
-                    new_branch = parent_node.add(f"[bold blue]📂 {part}[/bold blue]")
+                    new_branch = parent_node.add(f"[bold blue]+ {part}[/bold blue]")
                     folder_map[current_path] = new_branch
             
             parent_path = current_path
@@ -114,6 +118,67 @@ def check_sensitive(path: str) -> bool:
             return True
     return False
 
+# --- HOOKS SYSTEM ---
+
+def load_hooks(project_path: Path) -> Dict[str, List[str]]:
+    """Loads hooks from .veghhooks.json in the project root."""
+    hook_path = project_path / HOOKS_FILE
+    if hook_path.exists():
+        try:
+            # Force UTF-8 reading for the config file
+            data = json.loads(hook_path.read_text(encoding='utf-8'))
+            return data.get("hooks", {})
+        except Exception as e:
+            console.print(f"[yellow][WARN] Failed to parse {HOOKS_FILE}: {e}[/yellow]")
+    return {}
+
+def execute_hooks(commands: List[str], hook_name: str) -> bool:
+    """Executes a list of shell commands. Returns False if any command fails."""
+    if not commands:
+        return True
+    
+    console.print(f"[bold magenta]>>> HOOK: {hook_name}[/bold magenta]")
+    
+    # Environment setup
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+
+    for cmd in commands:
+        console.print(f"  [dim]$ {cmd}[/dim]")
+        
+        # FIX: On Windows, enforce UTF-8 code page (65001) for the command execution session
+        # This prevents '??' when using echo with emojis
+        final_cmd = cmd
+        if os.name == 'nt':
+            final_cmd = f"chcp 65001 >NUL && {cmd}"
+
+        try:
+            # FLUSH stdout before running subprocess to avoid ordering issues
+            sys.stdout.flush()
+            
+            # KEY FIX: capture_output=False
+            # We let the subprocess write DIRECTLY to the terminal handles.
+            # Python does not touch the bytes, so no decoding errors occur.
+            result = subprocess.run(
+                final_cmd, 
+                shell=True, 
+                capture_output=False, # Don't capture, just stream!
+                env=env
+            )
+            
+            if result.returncode != 0:
+                console.print(f"\n[bold red][ERR] Command failed with code {result.returncode}[/bold red]")
+                return False
+            
+            # Add a tiny visual break if needed, but keeping it raw is safer
+            
+        except Exception as e:
+            console.print(f"\n[bold red][ERR] Execution error:[/bold red] {e}")
+            return False
+            
+    console.print(f"[green][OK] {hook_name} hooks passed.[/green]")
+    return True
+
 # --- Commands ---
 
 @app.command()
@@ -122,7 +187,7 @@ def config(
     auth: Optional[str] = typer.Option(None, help="Set the default authentication token."),
 ):
     """
-    ⚙️  Configure default settings.
+    Configure default settings.
 
     Run without arguments to start [bold]Interactive Mode[/bold].
     Settings are saved to [dim]~/.vegh_config.json[/dim].
@@ -138,7 +203,7 @@ def config(
         if auth: cfg['auth'] = auth
     
     save_config(cfg)
-    console.print(f"[green]✔ Configuration saved to {CONFIG_FILE}[/green]")
+    console.print(f"[green][OK] Configuration saved to {CONFIG_FILE}[/green]")
 
 @app.command()
 def snap(
@@ -149,15 +214,28 @@ def snap(
     include: Optional[List[str]] = typer.Option(None, "--include", "-i", help="Force include files"),
     exclude: Optional[List[str]] = typer.Option(None, "--exclude", "-e", help="Exclude files"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Simulate without creating file"),
+    skip_hooks: bool = typer.Option(False, "--skip-hooks", help="Bypass pre/post hooks"),
 ):
-    """📸 Create a snapshot (.snap)"""
+    """Create a snapshot (.snap)"""
     if not path.exists():
         console.print(f"[red]Path '{path}' not found.[/red]")
         raise typer.Exit(1)
 
+    # Load Hooks
+    hooks = load_hooks(path)
+    
     # --- DRY RUN LOGIC ---
     if dry_run:
-        console.print(f"[yellow]🚧 Dry-Run Mode:[/yellow] Simulating snapshot for [b]{path}[/b]...")
+        console.print(f"[yellow][DRY-RUN] Simulating snapshot for [b]{path}[/b]...[/yellow]")
+        
+        # Show hook intention in Dry-Run
+        if not skip_hooks and (hooks.get("pre") or hooks.get("post")):
+            console.print(Panel(
+                f"p: {len(hooks.get('pre', []))} commands\nPost-snap: {len(hooks.get('post', []))} commands",
+                title="[bold magenta]Hooks Detected (Skipped in Dry-Run)[/bold magenta]",
+                border_style="magenta"
+            ))
+
         try:
             results: List[Tuple[str, int]] = dry_run_snap(str(path), include, exclude)
         except Exception as e:
@@ -168,7 +246,7 @@ def snap(
         total_size = sum(size for _, size in results)
         warnings = []
 
-        tree = Tree(f"[bold yellow]🔍 Simulation: {path.name}[/bold yellow]")
+        tree = Tree(f"[bold yellow][SIM] {path.name}[/bold yellow]")
         folder_map = {"": tree}
 
         # Show max 50 items to avoid flooding console in dry-run
@@ -191,12 +269,12 @@ def snap(
                     if current_path not in folder_map:
                         if is_file_node:
                             label = f"{part} [dim]({format_bytes(f_size)})[/dim]"
-                            if is_sensitive: label = f"[bold red]⛔ {label}[/bold red]"
-                            elif is_large: label = f"[bold yellow]⚠️ {label}[/bold yellow]"
+                            if is_sensitive: label = f"[bold red][!] {label}[/bold red]"
+                            elif is_large: label = f"[bold yellow][!] {label}[/bold yellow]"
                             else: label = f"[green]{label}[/green]"
                             parent_node.add(label)
                         else:
-                            new_branch = parent_node.add(f"[bold blue]📂 {part}[/bold blue]")
+                            new_branch = parent_node.add(f"[bold blue]+ {part}[/bold blue]")
                             folder_map[current_path] = new_branch
                     parent_path = current_path
         
@@ -214,19 +292,25 @@ def snap(
         console.print(Panel(grid, title="[bold blue]Dry-Run Summary[/bold blue]", border_style="blue", expand=False))
 
         if warnings: console.print(Panel("\n".join(warnings), title="[bold red]Risk Assessment[/bold red]", border_style="red"))
-        else: console.print("[bold green]✔ No obvious issues detected.[/bold green]")
+        else: console.print("[bold green][OK] No obvious issues detected.[/bold green]")
         return 
     
     # --- REAL SNAP LOGIC ---
+    
+    # 1. PRE-SNAP HOOKS
+    if not skip_hooks:
+        if not execute_hooks(hooks.get("pre"), "pre"):
+            console.print("[bold red][ABORT] Snapshot aborted because pre-snap hooks failed.[/bold red]")
+            raise typer.Exit(1)
+
     folder_name = path.name or "backup"
     output_path = output or Path(f"{folder_name}.snap")
     console.print(f"[cyan]Packing[/cyan] [b]{path}[/b] -> [b]{output_path}[/b]")
     start = time.time()
     
-    # Use simple Spinner (no counting overhead) for maximum speed
+    # 2. CORE COMPRESSION
     with console.status("[bold cyan]Compressing...[/bold cyan]", spinner="dots"):
         try:
-            # Note: No callback passed anymore
             count = create_snap(str(path), str(output_path), level, comment, include, exclude)
         except Exception as e:
             console.print(f"[red]Error:[/red] {e}")
@@ -242,12 +326,18 @@ def snap(
     grid.add_row("Time:", f"{dur:.2f}s")
     console.print(Panel(grid, title="[bold green]Snapshot Created[/bold green]", border_style="green", expand=False))
 
+    # 3. POST-SNAP HOOKS
+    if not skip_hooks:
+        # We don't abort if post-hooks fail, just warn
+        if not execute_hooks(hooks.get("post"), "post"):
+            console.print("[yellow][WARN] Post-snap hooks encountered errors (snapshot is safe).[/yellow]")
+
 @app.command()
 def restore(
     file: Path = typer.Argument(..., help=".snap file"),
     out_dir: Path = typer.Argument(Path("."), help="Dest dir"),
 ):
-    """📦 Restore a snapshot."""
+    """Restore a snapshot."""
     if not file.exists():
         console.print("[red]File not found.[/red]")
         raise typer.Exit(1)
@@ -257,14 +347,14 @@ def restore(
         except Exception as e:
             console.print(f"[red]Restore failed:[/red] {e}")
             raise typer.Exit(1)
-    console.print(f"[green]✔ Successfully restored to[/green] [bold]{out_dir}[/bold]")
+    console.print(f"[green][OK] Successfully restored to[/green] [bold]{out_dir}[/bold]")
 
 @app.command("list")
 def list_cmd(
     file: Path = typer.Argument(..., help=".snap file"),
     tree_view: bool = typer.Option(True, "--tree/--flat", help="Show as tree or flat list"),
 ):
-    """📜 List contents (supports Tree view)."""
+    """List contents (supports Tree view)."""
     try:
         files = list_files(str(file))
         if not files:
@@ -283,7 +373,7 @@ def list_cmd(
 
 @app.command()
 def check(file: Path = typer.Argument(..., help=".snap file")):
-    """✅ Verify integrity & metadata."""
+    """Verify integrity & metadata."""
     if not file.exists():
         console.print(f"[red]File '{file}' not found.[/red]")
         raise typer.Exit(1)
@@ -309,9 +399,9 @@ def check(file: Path = typer.Argument(..., help=".snap file")):
             grid.add_row("Format:", f"[bold]v{meta.get('format_version', '1')}[/bold]")
             
             if meta.get("comment"): grid.add_row("Comment:", f"[italic]{meta['comment']}[/italic]")
-            console.print(Panel(grid, title=f"[bold green]✔ Valid Snapshot ({file.name})[/bold green]", border_style="green"))
+            console.print(Panel(grid, title=f"[bold green][OK] Valid Snapshot ({file.name})[/bold green]", border_style="green"))
         except Exception as e:
-            console.print(f"[bold red]❌ Verification Failed:[/bold red] {e}")
+            console.print(f"[bold red][ERR] Verification Failed:[/bold red] {e}")
             raise typer.Exit(1)
 
 @app.command()
@@ -319,7 +409,7 @@ def loc(
     file: Path = typer.Argument(..., help=".snap file"),
     raw: bool = typer.Option(False, "--raw", help="Show raw list instead of dashboard")
 ):
-    """📊 Visualize Lines of Code (Analytics)."""
+    """Visualize Lines of Code (Analytics)."""
     if not file.exists():
         console.print(f"[red]File '{file}' not found.[/red]")
         raise typer.Exit(1)
@@ -399,7 +489,7 @@ def send(
     force_chunk: bool = typer.Option(False, "--force-chunk", help="Force chunked upload"),
     auth: Optional[str] = typer.Option(None, "--auth", help="Bearer token (overrides config)"),
 ):
-    """🚀 Send snapshot to server."""
+    """Send snapshot to server."""
     if not file.exists():
         console.print(f"[bold red]Error:[/bold red] File '{file}' not found.")
         raise typer.Exit(1)
@@ -438,7 +528,7 @@ def _send_direct(file: Path, url: str, headers: dict):
                 response = requests.post(url, data=f, headers=headers)
                 
         if response.status_code in range(200, 300):
-            console.print("[bold green]✔ Upload complete![/bold green]")
+            console.print("[bold green][OK] Upload complete![/bold green]")
             if response.text:
                 console.print(Panel(response.text, title="Server Response", border_style="blue"))
         else:
@@ -448,12 +538,6 @@ def _send_direct(file: Path, url: str, headers: dict):
 
 def _send_chunked(file: Path, url: str, file_size: int, filename: str, headers: dict):
     total_chunks = math.ceil(file_size / CHUNK_SIZE)
-    
-    # Progress Bar is still somewhat useful for uploads (Network IO is slow anyway)
-    # But since we want to delete it, I'll switch to a Spinner that says "Uploading X Chunks..."
-    # Actually, for network, knowing percentage IS useful, but let's stick to the spirit of "Turbo Mode".
-    # I'll keep the progress bar ONLY for Upload (since it's network bound, not CPU bound like Rust), 
-    # OR replace it if you want consistency.
     
     with console.status(f"[bold cyan]Uploading {total_chunks} chunks...[/bold cyan]", spinner="dots") as status:
         completed = 0
@@ -473,7 +557,7 @@ def _send_chunked(file: Path, url: str, file_size: int, filename: str, headers: 
                     console.print(f"[red]Upload Aborted:[/red] {e}")
                     raise typer.Exit(1)
 
-    console.print("[bold green]✔ All chunks sent successfully![/bold green]")
+    console.print("[bold green][OK] All chunks sent successfully![/bold green]")
 
 if __name__ == "__main__":
     app()

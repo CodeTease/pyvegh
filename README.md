@@ -14,6 +14,7 @@ It delivers the raw performance of Rust (Zstd multithreaded compression, Tar arc
 * **Integrity v2:** Verify data integrity at lightning speed with **Blake3** and inspect metadata (author, timestamp, tool version) without unpacking.
 * **Smart Upload:** Built-in `send` command supporting concurrent **Chunked Uploads** for large files.
 * **Smart Filtering:** Automatically respects `.veghignore` and `.gitignore` rules.
+* **Vegh Hooks:** Allow you to custom automation shell command while snapping.
 
 ## Installation
 
@@ -85,6 +86,27 @@ Send the snapshot to a remote server. PyVegh now supports **Chunked Uploads** fo
 ```bash
 # Auto-detects if chunking is needed, or force it:
 vegh send backup.snap --force-chunk
+```
+
+### 7\. Hooks example
+
+Create a `.veghhooks.json` in your workspace.
+
+```json
+{
+  "hooks": {
+    "pre": [
+      "echo '🚀 Pre-snap hook started...'",
+      "echo 'Preparing to backup...'",
+      "echo 'Backing up database...'",
+      "echo 'Backup completed.'"
+    ],
+    "post": [
+      "echo '🎉 Snapshot completed!'",
+      "echo 'Cleaning up...'"
+    ]
+  }
+}
 ```
 
 ## Library Usage

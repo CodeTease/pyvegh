@@ -41,6 +41,7 @@ venv.bak/
 .idea
 *.swp
 
-# Internal files
+# Internal
 *.snap
 .veghcache/
+.veghhooks.json
