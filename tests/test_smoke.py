@@ -17,7 +17,7 @@ def test_basic_flow(tmp_path):
     source.mkdir()
     (source / "test.txt").write_text("Hello Teaserverse")
     
-    snap_file = tmp_path / "test.snap"
+    snap_file = tmp_path / "test.vegh"
     
     # 2. Create Snap
     count = create_snap(str(source), str(snap_file), comment="Pytest")

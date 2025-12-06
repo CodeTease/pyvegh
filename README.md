@@ -49,7 +49,7 @@ Pack a directory into a highly compressed snapshot.
 
 ```bash
 # Basic snapshot
-vegh snap ./my-project --output backup.snap
+vegh snap ./my-project --output backup.vegh
 
 # Dry-Run (Simulation) - Check for large/sensitive files
 vegh snap ./my-project --dry-run
@@ -60,7 +60,7 @@ vegh snap ./my-project --dry-run
 View the CodeTease Analytics Dashboard to break down your project by language and lines of code.
 
 ```bash
-vegh loc backup.snap
+vegh loc backup.vegh
 ```
 
 ### 4\. Inspect & Verify
@@ -68,7 +68,7 @@ vegh loc backup.snap
 Check file integrity (Blake3) and view embedded metadata.
 
 ```bash
-vegh check backup.snap
+vegh check backup.vegh
 ```
 
 ### 5\. Restore
@@ -76,7 +76,7 @@ vegh check backup.snap
 Restore the snapshot to a target directory.
 
 ```bash
-vegh restore backup.snap ./restored-folder
+vegh restore backup.vegh ./restored-folder
 ```
 
 ### 6\. Send
@@ -85,7 +85,7 @@ Send the snapshot to a remote server. PyVegh now supports **Chunked Uploads** fo
 
 ```bash
 # Auto-detects if chunking is needed, or force it:
-vegh send backup.snap --force-chunk
+vegh send backup.vegh --force-chunk
 ```
 
 ### 7\. Hooks example
@@ -119,20 +119,20 @@ from vegh import create_snap, restore_snap, check_integrity, get_metadata
 
 # 1. Create a snapshot
 # Returns the number of files compressed
-count = create_snap("src_folder", "backup.snap", comment="Automated backup")
+count = create_snap("src_folder", "backup.vegh", comment="Automated backup")
 print(f"Compressed {count} files.")
 
 # 2. Check integrity (Now uses Blake3)
-checksum = check_integrity("backup.snap")
+checksum = check_integrity("backup.vegh")
 print(f"Blake3 Hash: {checksum}")
 
 # 3. Read Metadata (Fast, no unpacking)
-raw_meta = get_metadata("backup.snap")
+raw_meta = get_metadata("backup.vegh")
 meta = json.loads(raw_meta)
 print(f"Snapshot created by: {meta.get('author')}")
 
 # 4. Restore
-restore_snap("backup.snap", "dest_folder")
+restore_snap("backup.vegh", "dest_folder")
 ```
 
 ## License

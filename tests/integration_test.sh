@@ -13,7 +13,7 @@ echo -e "${CYAN}🚀 Starting Integration Test for PyVegh...${NC}"
 TEST_DIR="test_sandbox"
 SRC_DIR="$TEST_DIR/source"
 RESTORE_DIR="$TEST_DIR/restored"
-SNAP_FILE="$TEST_DIR/backup.snap"
+SNAP_FILE="$TEST_DIR/backup.vegh"
 
 # Cleanup old remnants
 rm -rf $TEST_DIR

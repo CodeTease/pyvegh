@@ -216,7 +216,7 @@ def snap(
     dry_run: bool = typer.Option(False, "--dry-run", help="Simulate without creating file"),
     skip_hooks: bool = typer.Option(False, "--skip-hooks", help="Bypass pre/post hooks"),
 ):
-    """Create a snapshot (.snap)"""
+    """Create a snapshot (.vegh)"""
     if not path.exists():
         console.print(f"[red]Path '{path}' not found.[/red]")
         raise typer.Exit(1)
@@ -304,7 +304,8 @@ def snap(
             raise typer.Exit(1)
 
     folder_name = path.name or "backup"
-    output_path = output or Path(f"{folder_name}.snap")
+    # Change default extension from .snap to .vegh
+    output_path = output or Path(f"{folder_name}.vegh")
     console.print(f"[cyan]Packing[/cyan] [b]{path}[/b] -> [b]{output_path}[/b]")
     start = time.time()
     
@@ -334,7 +335,7 @@ def snap(
 
 @app.command()
 def restore(
-    file: Path = typer.Argument(..., help=".snap file"),
+    file: Path = typer.Argument(..., help=".vegh file"),
     out_dir: Path = typer.Argument(Path("."), help="Dest dir"),
 ):
     """Restore a snapshot."""
@@ -351,7 +352,7 @@ def restore(
 
 @app.command("list")
 def list_cmd(
-    file: Path = typer.Argument(..., help=".snap file"),
+    file: Path = typer.Argument(..., help=".vegh file"),
     tree_view: bool = typer.Option(True, "--tree/--flat", help="Show as tree or flat list"),
 ):
     """List contents (supports Tree view)."""
@@ -372,7 +373,7 @@ def list_cmd(
         console.print(f"[red]List failed:[/red] {e}")
 
 @app.command()
-def check(file: Path = typer.Argument(..., help=".snap file")):
+def check(file: Path = typer.Argument(..., help=".vegh file")):
     """Verify integrity & metadata."""
     if not file.exists():
         console.print(f"[red]File '{file}' not found.[/red]")
@@ -406,7 +407,7 @@ def check(file: Path = typer.Argument(..., help=".snap file")):
 
 @app.command()
 def loc(
-    file: Path = typer.Argument(..., help=".snap file"),
+    file: Path = typer.Argument(..., help=".vegh file"),
     raw: bool = typer.Option(False, "--raw", help="Show raw list instead of dashboard")
 ):
     """Visualize Lines of Code (Analytics)."""
