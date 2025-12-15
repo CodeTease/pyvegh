@@ -20,7 +20,7 @@ from rich.prompt import Prompt
 
 # Import core functionality
 try:
-    from ._core import create_snap, dry_run_snap, restore_snap, check_integrity, list_files, get_metadata, count_locs
+    from ._core import create_snap, dry_run_snap, restore_snap, check_integrity, list_files, get_metadata, count_locs, scan_locs_dir
 except ImportError:
     print("Error: Rust core missing. Run 'maturin develop'!")
     exit(1)
@@ -407,17 +407,31 @@ def check(file: Path = typer.Argument(..., help=".vegh file")):
 
 @app.command()
 def loc(
-    file: Path = typer.Argument(..., help=".vegh file"),
+    file: Path = typer.Argument(..., help="Path to .vegh file OR source directory"),
     raw: bool = typer.Option(False, "--raw", help="Show raw list instead of dashboard")
 ):
-    """Visualize Lines of Code (Analytics)."""
+    """
+    Visualize Lines of Code (Analytics).
+    
+    Supports both:
+    1. .vegh snapshot files (Analyzes compressed content)
+    2. Source directories (Analyzes files on disk directly)
+    """
     if not file.exists():
-        console.print(f"[red]File '{file}' not found.[/red]")
+        console.print(f"[red]Path '{file}' not found.[/red]")
         raise typer.Exit(1)
 
-    with console.status("[cyan]Crunching numbers...[/cyan]", spinner="dots"):
+    is_dir = file.is_dir()
+    mode_text = "Scanning directory" if is_dir else "Analyzing snapshot"
+
+    with console.status(f"[cyan]{mode_text}...[/cyan]", spinner="dots"):
         try:
-            results = count_locs(str(file))
+            if is_dir:
+                # Direct Source Scan (Smart Mode)
+                results = scan_locs_dir(str(file))
+            else:
+                # Classic Snapshot Scan
+                results = count_locs(str(file))
         except Exception as e:
             console.print(f"[red]Error:[/red] {e}")
             raise typer.Exit(1)
