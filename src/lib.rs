@@ -236,8 +236,12 @@ fn dry_run_snap(
 
 
 #[pyfunction]
-#[pyo3(signature = (file_path, out_dir))]
-fn restore_snap(file_path: String, out_dir: String) -> PyResult<()> {
+#[pyo3(signature = (file_path, out_dir, include=None))]
+fn restore_snap(
+    file_path: String, 
+    out_dir: String,
+    include: Option<Vec<String>>
+) -> PyResult<()> {
     let out = Path::new(&out_dir);
     if !out.exists() { fs::create_dir_all(out).map_err(|e| PyIOError::new_err(e.to_string()))?; }
 
@@ -249,6 +253,18 @@ fn restore_snap(file_path: String, out_dir: String) -> PyResult<()> {
         let mut entry = entry.map_err(|e| PyIOError::new_err(e.to_string()))?;
         let path = entry.path().unwrap().into_owned();
         if path.to_string_lossy() == ".vegh.json" { continue; }
+
+        if let Some(ref incs) = include {
+             let mut matched = false;
+             for pattern in incs {
+                 if path.starts_with(Path::new(pattern)) {
+                     matched = true;
+                     break;
+                 }
+             }
+             if !matched { continue; }
+        }
+
         entry.unpack_in(out).map_err(|e| PyIOError::new_err(e.to_string()))?;
     }
     Ok(())
@@ -404,6 +420,46 @@ fn scan_locs_dir(
     Ok(results)
 }
 
+#[pyfunction]
+fn cat_file(file_path: String, target_file: String) -> PyResult<Vec<u8>> {
+    let file = File::open(&file_path).map_err(|e| PyIOError::new_err(e.to_string()))?;
+    let decoder = zstd::stream::read::Decoder::new(file).unwrap();
+    let mut archive = tar::Archive::new(decoder);
+
+    for entry in archive.entries().map_err(|e| PyIOError::new_err(e.to_string()))? {
+        let mut entry = entry.map_err(|e| PyIOError::new_err(e.to_string()))?;
+        let path = entry.path().unwrap().into_owned();
+        let path_str = path.to_string_lossy().to_string();
+
+        if path_str == target_file {
+            let mut content = Vec::new();
+            entry.read_to_end(&mut content).map_err(|e| PyIOError::new_err(e.to_string()))?;
+            return Ok(content);
+        }
+    }
+    Err(PyValueError::new_err(format!("File '{}' not found in snapshot", target_file)))
+}
+
+#[pyfunction]
+fn list_files_details(file_path: String) -> PyResult<Vec<(String, u64)>> {
+    let file = File::open(&file_path).map_err(|e| PyIOError::new_err(e.to_string()))?;
+    let decoder = zstd::stream::read::Decoder::new(file).unwrap();
+    let mut archive = tar::Archive::new(decoder);
+    
+    let mut results = Vec::new();
+    if let Ok(entries) = archive.entries() {
+        for entry in entries {
+            if let Ok(e) = entry {
+                let size = e.size();
+                if let Ok(p) = e.path() { 
+                    results.push((p.to_string_lossy().to_string(), size)); 
+                }
+            }
+        }
+    }
+    Ok(results)
+}
+
 #[pymodule]
 #[pyo3(name = "_core")]
 fn pyvegh_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -414,6 +470,8 @@ fn pyvegh_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(check_integrity, m)?)?;
     m.add_function(wrap_pyfunction!(get_metadata, m)?)?; 
     m.add_function(wrap_pyfunction!(count_locs, m)?)?;
-    m.add_function(wrap_pyfunction!(scan_locs_dir, m)?)?; // Updated Export
+    m.add_function(wrap_pyfunction!(scan_locs_dir, m)?)?; 
+    m.add_function(wrap_pyfunction!(cat_file, m)?)?;
+    m.add_function(wrap_pyfunction!(list_files_details, m)?)?;
     Ok(())
 }

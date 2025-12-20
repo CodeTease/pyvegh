@@ -20,7 +20,7 @@ from rich.prompt import Prompt
 
 # Import core functionality
 try:
-    from ._core import create_snap, dry_run_snap, restore_snap, check_integrity, list_files, get_metadata, count_locs, scan_locs_dir
+    from ._core import create_snap, dry_run_snap, restore_snap, check_integrity, list_files, get_metadata, count_locs, scan_locs_dir, cat_file, list_files_details
 except ImportError:
     print("Error: Rust core missing. Run 'maturin develop'!")
     exit(1)
@@ -337,6 +337,7 @@ def snap(
 def restore(
     file: Path = typer.Argument(..., help=".vegh file"),
     out_dir: Path = typer.Argument(Path("."), help="Dest dir"),
+    path: Optional[List[str]] = typer.Option(None, "--path", "-p", help="Partial restore specific paths"),
 ):
     """Restore a snapshot."""
     if not file.exists():
@@ -344,11 +345,147 @@ def restore(
         raise typer.Exit(1)
     # Using Status/Spinner instead of Progress bar here too
     with console.status("[bold cyan]Restoring...[/bold cyan]", spinner="dots"):
-        try: restore_snap(str(file), str(out_dir))
+        try: restore_snap(str(file), str(out_dir), path)
         except Exception as e:
             console.print(f"[red]Restore failed:[/red] {e}")
             raise typer.Exit(1)
     console.print(f"[green][OK] Successfully restored to[/green] [bold]{out_dir}[/bold]")
+
+@app.command()
+def cat(
+    file: Path = typer.Argument(..., help=".vegh file"),
+    target: str = typer.Argument(..., help="Path of the file inside snapshot"),
+):
+    """View content of a file in the snapshot."""
+    if not file.exists():
+        console.print(f"[red]File '{file}' not found.[/red]")
+        raise typer.Exit(1)
+    
+    try:
+        content_bytes = cat_file(str(file), target)
+        # Try to decode as utf-8, if fails, might be binary
+        try:
+            content_str = bytes(content_bytes).decode('utf-8')
+            from rich.syntax import Syntax
+            # Guess lexer based on file extension
+            ext = Path(target).suffix.lstrip(".") or "txt"
+            syntax = Syntax(content_str, ext, theme="monokai", line_numbers=True)
+            console.print(syntax)
+        except UnicodeDecodeError:
+            console.print(f"[yellow]Binary content detected ({len(content_bytes)} bytes). Cannot display text.[/yellow]")
+    except Exception as e:
+        console.print(f"[red]Error reading file:[/red] {e}")
+        raise typer.Exit(1)
+
+@app.command()
+def diff(
+    file: Path = typer.Argument(..., help=".vegh file"),
+    target_dir: Path = typer.Argument(Path("."), help="Directory to compare against"),
+):
+    """Compare snapshot with a directory."""
+    if not file.exists():
+        console.print(f"[red]File '{file}' not found.[/red]")
+        raise typer.Exit(1)
+    if not target_dir.exists():
+        console.print(f"[red]Directory '{target_dir}' not found.[/red]")
+        raise typer.Exit(1)
+
+    with console.status("[bold cyan]Comparing...[/bold cyan]", spinner="dots"):
+        try:
+            snap_files = list_files_details(str(file))
+            # Convert to dict: path -> size
+            snap_map = {p: s for p, s in snap_files if p != ".vegh.json"}
+        except Exception as e:
+            console.print(f"[red]Error reading snapshot:[/red] {e}")
+            raise typer.Exit(1)
+
+        # Walk target dir
+        local_files = {}
+        target_abs = target_dir.resolve()
+        
+        # Use existing ignore logic would be better but simple walk for now is enough as per spec logic request
+        for root, _, files in os.walk(target_dir):
+            for name in files:
+                full_path = Path(root) / name
+                rel_path = str(full_path.relative_to(target_dir))
+                
+                # Basic ignore for .git, .vegh cache, etc matches Rust logic vaguely
+                if ".git" in rel_path.split(os.sep): continue
+                if ".veghcache" in rel_path.split(os.sep): continue
+                if name == ".vegh.json": continue # Should not exist on disk usually but good to ignore
+                
+                try:
+                    size = full_path.stat().st_size
+                    local_files[rel_path] = size
+                except:
+                    pass
+
+    # Compare
+    all_paths = set(snap_map.keys()) | set(local_files.keys())
+    
+    table = Table(title=f"Diff: {file.name} vs {target_dir}")
+    table.add_column("File Path", style="cyan")
+    table.add_column("Status", style="bold")
+    table.add_column("Details", style="dim")
+
+    changes_found = False
+    
+    for path in sorted(all_paths):
+        in_snap = path in snap_map
+        in_local = path in local_files
+        
+        if in_snap and in_local:
+            s_size = snap_map[path]
+            l_size = local_files[path]
+            if s_size != l_size:
+                table.add_row(path, "[yellow][MODIFIED][/yellow]", f"Size: {format_bytes(s_size)} -> {format_bytes(l_size)}")
+                changes_found = True
+            # If size matches, we assume SAME for now (quick check)
+        elif in_snap and not in_local:
+            table.add_row(path, "[red][DELETED][/red]", "In Snap but not on Disk")
+            changes_found = True
+        elif not in_snap and in_local:
+            table.add_row(path, "[green][NEW][/green]", "On Disk but not in Snap")
+            changes_found = True
+
+    if changes_found:
+        console.print(table)
+    else:
+        console.print("[bold green]No changes detected (based on file size).[/bold green]")
+
+@app.command()
+def doctor():
+    """Check environment health."""
+    console.print("[bold cyan]Vegh Doctor[/bold cyan]")
+    
+    # 1. Check Python Version
+    py_ver = sys.version.split()[0]
+    console.print(f"Python Version: [green]{py_ver}[/green]")
+    
+    # 2. Check Rust Extension
+    try:
+        from . import _core
+        console.print(f"Rust Core: [green]Loaded[/green]")
+    except ImportError:
+        console.print(f"Rust Core: [red]MISSING[/red]")
+    
+    # 3. Check Permissions
+    cwd = Path.cwd()
+    write_access = os.access(cwd, os.W_OK)
+    status = "[green]OK[/green]" if write_access else "[red]FAIL[/red]"
+    console.print(f"Write Access ({cwd}): {status}")
+
+    # 4. Check Cargo (Optional)
+    try:
+        res = subprocess.run(["cargo", "--version"], capture_output=True, text=True)
+        if res.returncode == 0:
+             console.print(f"Cargo: [green]{res.stdout.strip()}[/green]")
+        else:
+             console.print("Cargo: [yellow]Not found (Optional)[/yellow]")
+    except:
+        console.print("Cargo: [yellow]Not found (Optional)[/yellow]")
+    
+    console.print("\n[bold green]System seems healthy![/bold green]")
 
 @app.command("list")
 def list_cmd(

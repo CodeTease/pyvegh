@@ -212,7 +212,7 @@ def render_dashboard(console: Console, file_name: str, raw_results: List[Tuple[s
     )
 
     # --- Header ---
-    title_text = Text(f"📊 CodeTease Analytics: {file_name}", style="bold white on blue", justify="center")
+    title_text = Text(f"📊 Vegh Analytics: {file_name}", style="bold white on blue", justify="center")
     layout["header"].update(Panel(title_text, box=box.HEAVY))
 
     # --- Left: Detailed Table ---
