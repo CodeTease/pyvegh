@@ -15,6 +15,7 @@ It delivers the raw performance of Rust (Zstd multithreaded compression, Tar arc
 * **Smart Upload:** Built-in `send` command supporting concurrent **Chunked Uploads** for large files.
 * **Smart Filtering:** Automatically respects `.veghignore` and `.gitignore` rules.
 * **Vegh Hooks:** Allow you to custom automation shell command while snapping.
+* **Deep Inspection:** Peek into files (`cat`) and compare snapshots (`diff`) without unpacking.
 
 ## Installation
 
@@ -73,13 +74,29 @@ vegh check backup.vegh
 
 ### 5\. Restore
 
-Restore the snapshot to a target directory.
+Restore the snapshot to a target directory. Supports **Partial Restore**.
 
 ```bash
+# Full restore
 vegh restore backup.vegh ./restored-folder
+
+# Partial restore (Specific files or folders)
+vegh restore backup.vegh ./restored-folder --path src/main.rs --path config/
 ```
 
-### 6\. Send
+### 6\. Peek & Diff
+
+Inspect content without extracting.
+
+```bash
+# View a file's content inside the snapshot
+vegh cat backup.vegh src/main.rs
+
+# Compare snapshot with a directory
+vegh diff backup.vegh ./current-project
+```
+
+### 7\. Send
 
 Send the snapshot to a remote server. PyVegh now supports **Chunked Uploads** for reliability.
 
@@ -88,7 +105,15 @@ Send the snapshot to a remote server. PyVegh now supports **Chunked Uploads** fo
 vegh send backup.vegh --force-chunk
 ```
 
-### 7\. Hooks example
+### 8\. Doctor
+
+Check your environment and installation health.
+
+```bash
+vegh doctor
+```
+
+### 9\. Hooks example
 
 Create a `.veghhooks.json` in your workspace.
 
