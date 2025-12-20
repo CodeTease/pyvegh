@@ -399,26 +399,13 @@ def diff(
             console.print(f"[red]Error reading snapshot:[/red] {e}")
             raise typer.Exit(1)
 
-        # Walk target dir
-        local_files = {}
-        target_abs = target_dir.resolve()
-        
-        # Use existing ignore logic would be better but simple walk for now is enough as per spec logic request
-        for root, _, files in os.walk(target_dir):
-            for name in files:
-                full_path = Path(root) / name
-                rel_path = str(full_path.relative_to(target_dir))
-                
-                # Basic ignore for .git, .vegh cache, etc matches Rust logic vaguely
-                if ".git" in rel_path.split(os.sep): continue
-                if ".veghcache" in rel_path.split(os.sep): continue
-                if name == ".vegh.json": continue # Should not exist on disk usually but good to ignore
-                
-                try:
-                    size = full_path.stat().st_size
-                    local_files[rel_path] = size
-                except:
-                    pass
+        # Walk target dir using dry_run_snap to respect ignores
+        try:
+            local_list = dry_run_snap(str(target_dir))
+            local_files = {p: s for p, s in local_list}
+        except Exception as e:
+             console.print(f"[red]Error scanning directory:[/red] {e}")
+             raise typer.Exit(1)
 
     # Compare
     all_paths = set(snap_map.keys()) | set(local_files.keys())
@@ -454,8 +441,10 @@ def diff(
         console.print("[bold green]No changes detected (based on file size).[/bold green]")
 
 @app.command()
-def doctor():
-    """Check environment health."""
+def doctor(
+    file: Optional[Path] = typer.Argument(None, help="Optional: .vegh file to check integrity"),
+):
+    """Check environment health and optionally verify a snapshot."""
     console.print("[bold cyan]Vegh Doctor[/bold cyan]")
     
     # 1. Check Python Version
@@ -465,7 +454,7 @@ def doctor():
     # 2. Check Rust Extension
     try:
         from . import _core
-        console.print(f"Rust Core: [green]Loaded[/green]")
+        console.print(f"Rust Core: [green]Loaded (Verified)[/green]")
     except ImportError:
         console.print(f"Rust Core: [red]MISSING[/red]")
     
@@ -485,6 +474,18 @@ def doctor():
     except:
         console.print("Cargo: [yellow]Not found (Optional)[/yellow]")
     
+    # 5. Optional File Integrity Check
+    if file:
+        console.print(f"\n[bold cyan]Checking Snapshot: {file.name}[/bold cyan]")
+        if not file.exists():
+            console.print(f"[red]File not found![/red]")
+        else:
+            try:
+                check_integrity(str(file))
+                console.print(f"Header & Integrity: [green]OK[/green]")
+            except Exception as e:
+                console.print(f"Integrity: [bold red]CORRUPT ({e})[/bold red]")
+
     console.print("\n[bold green]System seems healthy![/bold green]")
 
 @app.command("list")
