@@ -393,8 +393,8 @@ def diff(
     with console.status("[bold cyan]Comparing...[/bold cyan]", spinner="dots"):
         try:
             snap_files = list_files_details(str(file))
-            # Convert to dict: path -> size
-            snap_map = {p: s for p, s in snap_files if p != ".vegh.json"}
+            # Convert to dict: path -> size (Normalize path to posix to avoid OS diffs)
+            snap_map = {Path(p).as_posix(): s for p, s in snap_files if p != ".vegh.json"}
         except Exception as e:
             console.print(f"[red]Error reading snapshot:[/red] {e}")
             raise typer.Exit(1)
@@ -402,7 +402,8 @@ def diff(
         # Walk target dir using dry_run_snap to respect ignores
         try:
             local_list = dry_run_snap(str(target_dir))
-            local_files = {p: s for p, s in local_list}
+            # Normalize local paths too (Windows uses backslash)
+            local_files = {Path(p).as_posix(): s for p, s in local_list}
         except Exception as e:
              console.print(f"[red]Error scanning directory:[/red] {e}")
              raise typer.Exit(1)
