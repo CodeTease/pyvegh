@@ -236,11 +236,12 @@ fn dry_run_snap(
 
 
 #[pyfunction]
-#[pyo3(signature = (file_path, out_dir, include=None))]
+#[pyo3(signature = (file_path, out_dir, include=None, flatten=false))]
 fn restore_snap(
     file_path: String, 
     out_dir: String,
-    include: Option<Vec<String>>
+    include: Option<Vec<String>>,
+    flatten: bool
 ) -> PyResult<()> {
     let out = Path::new(&out_dir);
     if !out.exists() { fs::create_dir_all(out).map_err(|e| PyIOError::new_err(e.to_string()))?; }
@@ -265,7 +266,14 @@ fn restore_snap(
              if !matched { continue; }
         }
 
-        entry.unpack_in(out).map_err(|e| PyIOError::new_err(e.to_string()))?;
+        if flatten {
+            if let Some(file_name) = path.file_name() {
+                let target = out.join(file_name);
+                entry.unpack(target).map_err(|e| PyIOError::new_err(e.to_string()))?;
+            }
+        } else {
+            entry.unpack_in(out).map_err(|e| PyIOError::new_err(e.to_string()))?;
+        }
     }
     Ok(())
 }

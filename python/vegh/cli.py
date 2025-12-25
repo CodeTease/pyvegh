@@ -299,6 +299,23 @@ def config_repo(
     status = "OFFLINE (Fast)" if offline else "ONLINE (Fresh)"
     console.print(f"[green][OK] Repo default mode set to: [bold]{status}[/bold][/green]")
 
+@config_app.command("list")
+def config_list():
+    """List current configuration."""
+    cfg = load_config()
+    console.print_json(data=cfg)
+
+@config_app.command("reset")
+def config_reset(
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
+):
+    """Reset configuration to defaults."""
+    if not force:
+        if not Confirm.ask("Are you sure you want to reset all configuration?"):
+            raise typer.Abort()
+    
+    save_config({})
+    console.print("[green]Configuration reset.[/green]")
 
 # --- MAIN COMMANDS ---
 
@@ -388,13 +405,14 @@ def restore(
     file: Path = typer.Argument(..., help=".vegh file"),
     out_dir: Path = typer.Argument(Path("."), help="Dest dir"),
     path: Optional[List[str]] = typer.Option(None, "--path", "-p", help="Partial restore"),
+    flatten: bool = typer.Option(False, "--flatten", help="Flatten directory structure"),
 ):
     """Restore a snapshot."""
     if not file.exists():
         console.print("[red]File not found.[/red]")
         raise typer.Exit(1)
     with console.status("[bold cyan]Restoring...[/bold cyan]", spinner="dots"):
-        try: restore_snap(str(file), str(out_dir), path)
+        try: restore_snap(str(file), str(out_dir), path, flatten)
         except Exception as e:
             console.print(f"[red]Restore failed:[/red] {e}")
             raise typer.Exit(1)
@@ -404,6 +422,7 @@ def restore(
 def cat(
     file: Path = typer.Argument(..., help=".vegh file"),
     target: str = typer.Argument(..., help="Path inside snapshot"),
+    raw: bool = typer.Option(False, "--raw", help="Print raw content to stdout"),
 ):
     """View content of a file in the snapshot."""
     if not file.exists():
@@ -411,6 +430,11 @@ def cat(
         raise typer.Exit(1)
     try:
         content_bytes = cat_file(str(file), target)
+        if raw:
+            sys.stdout.buffer.write(bytes(content_bytes))
+            sys.stdout.buffer.flush()
+            return
+
         try:
             content_str = bytes(content_bytes).decode('utf-8')
             from rich.syntax import Syntax

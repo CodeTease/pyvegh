@@ -41,7 +41,13 @@ Set up your default server URL and Auth Token so you don't have to type them eve
 ```bash
 vegh config
 # Or one-liner:
-vegh config --url https://api.teaserverse.online/test --auth YOUR_TOKEN
+vegh config send --url https://api.teaserverse.online/test --auth YOUR_TOKEN
+
+# List current configuration
+vegh config list
+
+# Reset configuration to defaults
+vegh config reset
 ```
 
 ### 2\. Create Snapshot
@@ -82,6 +88,9 @@ vegh restore backup.vegh ./restored-folder
 
 # Partial restore (Specific files or folders)
 vegh restore backup.vegh ./restored-folder --path src/main.rs --path config/
+
+# Flatten directory structure (Extract files directly to output dir)
+vegh restore backup.vegh ./restored-folder --flatten
 ```
 
 ### 6\. Peek & Diff
@@ -91,6 +100,9 @@ Inspect content without extracting.
 ```bash
 # View a file's content inside the snapshot
 vegh cat backup.vegh src/main.rs
+
+# View raw content (Useful for piping binary files)
+vegh cat backup.vegh image.png --raw > extracted_image.png
 
 # Compare snapshot with a directory
 vegh diff backup.vegh ./current-project
