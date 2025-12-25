@@ -89,7 +89,6 @@ LANG_MAP = {
     ".tex": ("LaTeX", "blue"),
     ".less": ("LESS", "blue"),
     ".styl": ("Stylus", "green"),
-    ".blade.php": ("Laravel Blade", "red"),
     ".twig": ("Twig", "green"),
     ".svelte": ("Svelte", "orange_red1"),
     ".heex": ("Phoenix HEEx", "purple"),
@@ -128,6 +127,8 @@ LANG_MAP = {
     ".txt": ("Text", "white"),
     ".ini": ("INI", "white"), 
     ".conf": ("Config", "white"),
+    ".csv": ("CSV", "green"),
+    ".tsv": ("TSV", "green"),
     
     # AI & TeaserLang
     ".mojo": ("Mojo", "red"),
@@ -162,6 +163,7 @@ FILENAME_MAP = {
     "docker-compose.yaml": ("Docker Compose", "blue"),
     "makefile": ("Makefile", "white"),
     "justfile": ("Justfile", "yellow"),
+    "procfile": ("Heroku Procfile", "red"),
     "rakefile": ("Ruby", "red"),
     "gemfile": ("Ruby Config", "red"),
     "cargo.toml": ("Cargo", "red"),
@@ -182,6 +184,8 @@ FILENAME_MAP = {
     ".veghignore": ("Vegh Ignore", "bright_green"),
     ".editorconfig": ("Editor Config", "white"),
     ".env.example": ("Env Template", "dim white"),
+    ".env.production": ("Env Production", "red"),
+    ".env.local": ("Env Development", "green"),
     "build.gradle": ("Gradle", "green"),
     "build.gradle.kts": ("Gradle Kotlin", "green"),
     "settings.gradle": ("Gradle Settings", "green"),
@@ -191,7 +195,8 @@ FILENAME_MAP = {
     "vagrantfile": ("Vagrant", "blue"),
     "jenkinsfile": ("Groovy", "white"),
     "wrangler.toml": ("Cloudflare", "orange3"), 
-    "vercel.json": ("Vercel", "white"),    
+    "vercel.json": ("Vercel", "white"),
+    "netlify.toml": ("Netlify", "cyan"),
     "next.config.js": ("Next.js Config", "white"),
     "nuxt.config.js": ("Nuxt.js Config", "green"),
     "gatsby-config.js": ("Gatsby Config", "purple"),
@@ -214,6 +219,10 @@ FILENAME_MAP = {
     "mix.exs": ("Elixir Mix", "purple"),
     "rebar.config": ("Erlang Rebar", "red"),
     "import_map.json": ("Deno Import Map", "cyan"),
+    ".babelrc": ("Babel Config", "yellow"),
+    "babel.config.js": ("Babel Config", "yellow"),
+    ".nycrc": ("Istanbul Config", "yellow"),
+    ".swcrc": ("SWC Config", "cyan"),
     # CI/CD & DevOps
     ".gitlab-ci.yml": ("GitLab CI", "orange_red1"),
     "cloudformation.yaml": ("CloudFormation", "orange3"),
@@ -262,7 +271,7 @@ class ProjectStats:
         self.total_loc += loc
         
         path = Path(path_str)
-        # .lower() handles both .s and .S
+        # .lower() handles both .s and .S 
         ext = path.suffix.lower()
         name = path.name.lower()
         

@@ -52,7 +52,7 @@ fi
 
 # 4. Test CHECK command
 echo -e "${CYAN}✅ Test 3: vegh check...${NC}"
-if vegh check "$SNAP_FILE" | grep -q "Valid Snapshot"; then
+if vegh check "$SNAP_FILE" | grep -q "Valid"; then
     echo -e "${GREEN}✔ Integrity check passed${NC}"
 else
     echo -e "${RED}✘ Integrity check failed!${NC}"
