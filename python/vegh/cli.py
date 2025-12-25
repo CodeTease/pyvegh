@@ -9,16 +9,13 @@ import sys
 import subprocess 
 import shutil
 import hashlib
-import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict, Tuple
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.tree import Tree
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TransferSpeedColumn, TimeElapsedColumn
 from rich.prompt import Prompt, Confirm
 
 # Import core functionality
@@ -176,7 +173,7 @@ def ensure_repo(url: str, branch: Optional[str] = None, offline_flag: bool = Fal
         if not repo_path.exists():
             # A. First Clone (Shallow) - Network is mandatory here
             if is_offline:
-                 console.print(f"[dim]Cache miss. Connecting to network to clone...[/dim]")
+                 console.print("[dim]Cache miss. Connecting to network to clone...[/dim]")
 
             console.print(f"[bold cyan]🚀 {action} {friendly_name} (fresh cache)...[/bold cyan]")
             cmd = ["git", "clone", "--depth", "1", "--single-branch"]
@@ -217,7 +214,7 @@ def ensure_repo(url: str, branch: Optional[str] = None, offline_flag: bool = Fal
         err = e.stderr.decode().strip() if e.stderr else str(e)
         console.print(f"[bold red]✘ Git Error:[/bold red] {err}")
         if repo_path.exists():
-            console.print(f"[yellow]Tip: Run 'vegh clean' if the cache is corrupted.[/yellow]")
+            console.print("[yellow]Tip: Run 'vegh clean' if the cache is corrupted.[/yellow]")
         raise typer.Exit(1)
 
     return repo_path, friendly_name
@@ -595,13 +592,13 @@ def doctor(
     if CONFIG_FILE.exists():
         console.print(f"Config: [green]Found[/green] ({CONFIG_FILE})")
     else:
-        console.print(f"Config: [dim]Not configured[/dim]")
+        console.print("Config: [dim]Not configured[/dim]")
 
     try:
         from . import _core
-        console.print(f"Rust Core: [green]Loaded[/green]")
+        console.print("Rust Core: [green]Loaded[/green]")
     except ImportError:
-        console.print(f"Rust Core: [red]MISSING[/red]")
+        console.print("Rust Core: [red]MISSING[/red]")
     
     # Updated Cache Check
     if REPO_CACHE_DIR.exists():
@@ -613,7 +610,7 @@ def doctor(
         console.print(f"Repo Cache: [bold]{repo_count}[/bold] repos ([{color}]{size_str}[/{color}])")
         console.print(f"Cache Location: [dim]{REPO_CACHE_DIR}[/dim]")
         if total_size > 5 * 1024 * 1024 * 1024:
-            console.print(f"[yellow]WARN: Cache is large. Run 'vegh clean' to free space.[/yellow]")
+            console.print("[yellow]WARN: Cache is large. Run 'vegh clean' to free space.[/yellow]")
     else:
         console.print("Repo Cache: [dim]Empty[/dim]")
 
@@ -622,11 +619,11 @@ def doctor(
         if file.exists():
             try:
                 check_integrity(str(file))
-                console.print(f"Integrity: [green]OK[/green]")
+                console.print("Integrity: [green]OK[/green]")
             except Exception as e:
                 console.print(f"Integrity: [bold red]CORRUPT ({e})[/bold red]")
         else:
-            console.print(f"[red]File not found![/red]")
+            console.print("[red]File not found![/red]")
 
     console.print("\n[bold green]System seems healthy![/bold green]")
 
@@ -827,7 +824,7 @@ def list_cmd(
 def check(file: Path = typer.Argument(..., help=".vegh file")):
     """Verify integrity & metadata."""
     if not file.exists():
-        console.print(f"[red]File not found.[/red]")
+        console.print("[red]File not found.[/red]")
         raise typer.Exit(1)
     with console.status("[bold cyan]Verifying...[/bold cyan]", spinner="dots"):
         try:
@@ -916,7 +913,7 @@ def send(
 ):
     """Send snapshot to server."""
     if not file.exists():
-        console.print(f"[red]File not found.[/red]")
+        console.print("[red]File not found.[/red]")
         raise typer.Exit(1)
     cfg = load_config()
     target = url or cfg.get('url')

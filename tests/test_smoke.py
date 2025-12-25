@@ -1,5 +1,3 @@
-import pytest
-import os
 from vegh import create_snap, check_integrity, get_metadata
 
 # This is a Smoke Test to ensure Rust bindings load correctly into Python.

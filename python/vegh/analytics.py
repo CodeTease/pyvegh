@@ -20,6 +20,7 @@ LANG_MAP = {
     ".hpp": ("C++", "blue"),
     ".cc": ("C++", "blue"),
     ".cxx": ("C++", "blue"), 
+    ".ino": ("Arduino", "blue"), # Actually it's C++
     ".go": ("Go", "cyan"),
     ".asm": ("Assembly", "white"),
     ".s": ("Assembly", "white"), 
@@ -29,15 +30,42 @@ LANG_MAP = {
     ".f03": ("Fortran", "magenta"),
     ".f08": ("Fortran", "magenta"),
     ".f": ("Fortran", "magenta"),
+    ".hs": ("Haskell", "magenta"),
+    ".ml": ("OCaml", "yellow"),
+    ".mli": ("OCaml", "yellow"),
+    ".nim": ("Nim", "cyan"),
+    ".v": ("V", "green"),
+    ".ada": ("Ada", "red"),
+    ".adb": ("Ada", "red"),
+    ".ads": ("Ada", "red"),
+    ".fs": ("F#", "blue"),
+    ".fsi": ("F#", "blue"),
+    ".fsx": ("F#", "blue"),
+    ".sv": ("SystemVerilog", "cyan"),
+    ".svh": ("SystemVerilog", "cyan"),
+    # ".v": ("Verilog", "cyan"), # Conflict with VLang
+    ".pas": ("Pascal", "yellow"),
+    ".pp": ("Pascal", "cyan"),
 
     # Enterprise & Mobile
     ".java": ("Java", "red"),
+    ".jav": ("Java", "red"),
+    ".scala": ("Scala", "red"),
+    ".groovy": ("Groovy", "white"),
+    ".clj": ("Clojure", "green"),
+    ".cljs": ("ClojureScript", "green"),
+    ".cljc": ("Clojure (Common)", "green"),
     ".kt": ("Kotlin", "magenta"),
     ".kts": ("Kotlin", "magenta"),
     ".cs": ("C#", "green"),
     ".swift": ("Swift", "bright_red"), 
-    ".m": ("Objective-C", "blue"),
+    ".m": ("Objective-C", "blue"), # Could be Matlab too
     ".dart": ("Dart", "cyan"),
+    ".ex": ("Elixir", "purple"),
+    ".exs": ("Elixir", "purple"),
+    ".erl": ("Erlang", "red"),
+    ".gleam": ("Gleam", "pink1"),
+    ".kmp": ("Kotlin Multiplatform", "magenta"),
 
     # Web & Scripting
     ".py": ("Python", "blue"),
@@ -47,20 +75,34 @@ LANG_MAP = {
     ".jsx": ("JavaScript (React)", "yellow"),
     ".mjs": ("JavaScript (ESM)", "yellow"),
     ".cjs": ("JavaScript (CJS)", "yellow"), 
+    ".coffee": ("CoffeeScript", "brown"),
     ".ts": ("TypeScript", "cyan"),
     ".tsx": ("TypeScript (React)", "cyan"),
     ".vue": ("Vue", "green"),
-    ".svelte": ("Svelte", "red"),
+    ".astro": ("Astro", "orange3"),
     ".html": ("HTML", "magenta"),
     ".htm": ("HTML", "magenta"),
     ".css": ("CSS", "blue_violet"),
     ".scss": ("SCSS", "magenta"),
+    ".sass": ("Sass", "magenta"),
+    ".hcl": ("HCL", "purple"),
+    ".tex": ("LaTeX", "blue"),
     ".less": ("LESS", "blue"),
+    ".styl": ("Stylus", "green"),
+    ".blade.php": ("Laravel Blade", "red"),
+    ".twig": ("Twig", "green"),
+    ".svelte": ("Svelte", "orange_red1"),
+    ".heex": ("Phoenix HEEx", "purple"),
+    ".leex": ("Phoenix LEEx", "purple"),
+    ".mjml": ("MJML (Email)", "cyan"),
+    ".liquid": ("Liquid", "blue"),
     ".php": ("PHP", "magenta"),
     ".rb": ("Ruby", "red"),
     ".rake": ("Ruby", "red"),
     ".lua": ("Lua", "blue"),
-    ".pl": ("Perl", "blue"),
+    ".cr": ("Crystal", "white"),
+    ".pl": ("Perl", "blue"), # Could be Prolog too
+    ".pm": ("Perl", "blue"),
     ".sh": ("Shell", "green"),
     ".bash": ("Shell", "green"),
     ".zsh": ("Shell", "green"),
@@ -68,6 +110,12 @@ LANG_MAP = {
     ".psm1": ("PowerShell", "blue"),
     ".bat": ("Batch", "yellow"),
     ".cmd": ("Batch", "yellow"),
+
+    # Game Development
+    ".gd": ("GDScript", "white"),
+    ".glsl": ("GLSL", "green"),
+    ".hlsl": ("HLSL", "green"),
+    ".wgsl": ("WGSL", "green"),
 
     # Data & Config
     ".json": ("JSON", "yellow"),
@@ -81,7 +129,9 @@ LANG_MAP = {
     ".ini": ("INI", "white"), 
     ".conf": ("Config", "white"),
     
-    # TeaserLang & CodeTease
+    # AI & TeaserLang
+    ".mojo": ("Mojo", "red"),
+    ".🔥": ("Mojo", "red"),
     ".fdon": ("FDON", "bright_green"),
     ".fwon": ("FWON", "bright_green"),
     ".bxson": ("BXSON", "bright_green"),
@@ -90,24 +140,28 @@ LANG_MAP = {
     ".dockerfile": ("Dockerfile", "blue"),
     ".tf": ("Terraform", "magenta"),
     ".nix": ("Nix", "cyan"),
-    ".sol": ("Solidity", "white"),
+    ".sol": ("Solidity", "bright_cyan"),
     ".r": ("R", "blue"),
+    ".hack": ("Hack", "cyan"),
     ".jl": ("Julia", "purple"),
-    ".wasm": ("WebAssembly", "purple"), 
+    ".wat": ("WebAssembly Text", "white"),
     ".proto": ("Protobuf", "cyan"),
-    ".svelte": ("Svelte", "orange_red1"), 
     ".log": ("Log", "dim white"),
     ".prisma": ("Prisma", "white"),
     ".graphql": ("GraphQL", "magenta"),
     ".gql": ("GraphQL", "magenta"),
+    ".vto": ("Vento", "bright_green"),
     ".env": ("Env Config", "red"),
     ".lock": ("Lock File", "dim white"),
 }
 
-# --- FILENAME MAP (FIXED & MERGED) ---
+# --- FILENAME MAP ---
 FILENAME_MAP = {
     "dockerfile": ("Dockerfile", "blue"),
+    "docker-compose.yml": ("Docker Compose", "blue"),
+    "docker-compose.yaml": ("Docker Compose", "blue"),
     "makefile": ("Makefile", "white"),
+    "justfile": ("Justfile", "yellow"),
     "rakefile": ("Ruby", "red"),
     "gemfile": ("Ruby Config", "red"),
     "cargo.toml": ("Cargo", "red"),
@@ -115,17 +169,25 @@ FILENAME_MAP = {
     "package.json": ("NPM Config", "yellow"),
     "tsconfig.json": ("TS Config", "cyan"),
     "webpack.config.js": ("Webpack Config", "yellow"),
+    "tailwind.config.js": ("Tailwind Config", "cyan"),
+    "tailwind.config.ts": ("Tailwind Config", "cyan"),
+    "vite.config.js": ("Vite Config", "purple"),
+    "vite.config.ts": ("Vite Config", "purple"),
+    "postcss.config.js": ("PostCSS", "red"),
     "go.mod": ("Go Module", "cyan"),
     "go.sum": ("Go Sum", "cyan"),
     ".gitignore": ("Git Config", "white"),
     ".dockerignore": ("Docker Ignore", "blue"), 
     ".npmignore": ("NPM Ignore", "yellow"),
     ".veghignore": ("Vegh Ignore", "bright_green"),
+    ".editorconfig": ("Editor Config", "white"),
+    ".env.example": ("Env Template", "dim white"),
     "build.gradle": ("Gradle", "green"),
     "build.gradle.kts": ("Gradle Kotlin", "green"),
     "settings.gradle": ("Gradle Settings", "green"),
     "settings.gradle.kts": ("Gradle Settings Kotlin", "green"),
     "pom.xml": ("Maven", "red"),
+    "pubspec.yaml": ("Flutter Config", "blue"),
     "vagrantfile": ("Vagrant", "blue"),
     "jenkinsfile": ("Groovy", "white"),
     "wrangler.toml": ("Cloudflare", "orange3"), 
@@ -133,6 +195,60 @@ FILENAME_MAP = {
     "next.config.js": ("Next.js Config", "white"),
     "nuxt.config.js": ("Nuxt.js Config", "green"),
     "gatsby-config.js": ("Gatsby Config", "purple"),
+    "package-lock.json": ("NPM Lock", "yellow"),
+    "pnpm-lock.yaml": ("PNPM Lock", "yellow"),
+    "pnpm-workspace.yaml": ("PNPM Workspace", "yellow"),
+    "firebase.json": ("Firebase Config", "yellow"),
+    "deno.json": ("Deno Config", "cyan"),
+    "deno.jsonc": ("Deno Config", "cyan"),
+    ".prettierrc": ("Prettier Config", "white"),
+    ".eslintrc": ("ESLint Config", "white"),
+    ".eslintrc.json": ("ESLint Config", "white"),
+    ".eslintrc.js": ("ESLint Config", "white"),
+    "pyrightconfig.json": ("Pyright Config", "blue"),
+    "tslint.json": ("TSLint Config", "cyan"),
+    "composer.json": ("Composer (PHP)", "magenta"),
+    "composer.lock": ("Composer Lock", "magenta"),
+    "setup.py": ("Python Setup", "blue"),
+    "requirements.txt": ("Python Requirements", "blue"),
+    "mix.exs": ("Elixir Mix", "purple"),
+    "rebar.config": ("Erlang Rebar", "red"),
+    "import_map.json": ("Deno Import Map", "cyan"),
+    # CI/CD & DevOps
+    ".gitlab-ci.yml": ("GitLab CI", "orange_red1"),
+    "cloudformation.yaml": ("CloudFormation", "orange3"),
+    "cloudformation.yml": ("CloudFormation", "orange3"),
+    "fly.toml": ("Fly.io Config", "purple"),
+    # CodeTease Specific
+    ".veghhooks.json": ("Vegh Hooks", "bright_green"),
+    "sensify.yaml": ("Sensify Config", "bright_green"),
+    "carade.conf": ("Carade Config", "bright_green"),
+    # Special Cases
+    "license": ("License", "white"),
+    "readme": ("Readme", "white"),
+    "license.md": ("License", "white"),
+    "readme.md": ("Readme", "white"),
+    "license.txt": ("License", "white"),
+    "readme.txt": ("Readme", "white"),
+    "contributing.md": ("Contributing", "white"),
+    "contributing.txt": ("Contributing", "white"),
+    "changelog.md": ("Changelog", "white"),
+    "changelog.txt": ("Changelog", "white"),
+    "security.md": ("Security", "white"),
+    "security.txt": ("Security", "white"),
+    "code_of_conduct.md": ("Code of Conduct", "white"),
+    "code_of_conduct.txt": ("Code of Conduct", "white"),
+    "agents.md": ("Agents", "bright_green"), # For AI coding agents, rare but possible. easily find in big repositories
+    "authors.md": ("Authors", "white"),
+    "authors": ("Authors", "white"),
+    "version.txt": ("Version", "white"),
+    "version.md": ("Version", "white"),
+    "version": ("Version", "white"),
+    "codeowners": ("Code Owners", "white"),
+    "funding.yml": ("Funding", "white"),
+    "todo.md": ("Todo", "white"),
+    "todo": ("Todo", "white"),
+
 }
 
 class ProjectStats:
@@ -263,9 +379,15 @@ def render_dashboard(console: Console, file_name: str, raw_results: List[Tuple[s
 
     comment = "Code Hard, Play Hard! 🚀"
     
-    # Logic Fun Comment
+# Logic Fun Comment
     if top_lang == "Rust": comment = "Blazingly Fast! 🦀"
     elif top_lang == "Python": comment = "Snake Charmer! 🐍"
+    elif top_lang == "Haskell": comment = "Purely Functional... and confusing! 😵‍💫"
+    elif top_lang == "Mojo": comment = "AI Speedster! 🔥"
+    elif top_lang == "Solidity": comment = "Wen Lambo? 🏎️"
+    elif top_lang == "Elixir": comment = "Scalability God! 💜"
+    elif top_lang == "Astro": comment = "To the stars! 🚀"
+    elif top_lang == "CSS": comment = "Center a div? Good luck! 🎨"
     elif "React" in top_lang: comment = "Component Heaven! ⚛️"
     elif top_lang in ["JavaScript", "TypeScript", "Vue", "Svelte"]: comment = "Web Scale! 🌐"
     elif top_lang in ["Assembly", "C", "C++"]: comment = "Low Level Wizardry! 🧙‍♂️"
@@ -277,10 +399,9 @@ def render_dashboard(console: Console, file_name: str, raw_results: List[Tuple[s
     elif top_lang == "PHP": comment = "Elephant in the room! 🐘"
     elif top_lang == "Swift": comment = "Feeling Swift? 🍏"
     elif top_lang == "Dart": comment = "Fluttering away! 🐦"
-    elif top_lang == "Solidity": comment = "To The Moon! 🚀🌑"
     elif top_lang == "SQL": comment = "DROP TABLE production; 💀"
     elif top_lang == "Terraform": comment = "Infrastructure as Code! 🏗️"
-    elif top_lang == "Dockerfile": comment = "Containerized! 🐳" 
+    elif top_lang == "Dockerfile": comment = "Containerized! 🐳"
 
     summary = f"[bold]Total LOC:[/bold] [green]{stats.total_loc:,}[/green] | [bold]Analyzed Files:[/bold] {stats.total_files} | [italic]{comment}[/italic]"
     
