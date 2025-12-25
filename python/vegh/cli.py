@@ -449,18 +449,19 @@ def cat(
 @app.command()
 def diff(
     file: Optional[Path] = typer.Argument(None, help=".vegh file (Optional if using --repo)"),
-    target_dir: Path = typer.Argument(Path("."), help="Local directory to compare against"),
+    target: Path = typer.Argument(Path("."), help="Local directory OR .vegh file to compare against"),
     repo: Optional[str] = typer.Option(None, "--repo", help="Use remote repo as Source instead of .vegh file"),
     branch: Optional[str] = typer.Option(None, "--branch", "-b", help="Branch for remote repo"),
     offline: bool = typer.Option(False, "--offline", help="Force offline mode (overrides config)"),
 ):
-    """Compare snapshot OR remote repo with a local directory."""
-    if not target_dir.exists():
-        console.print(f"[red]Directory '{target_dir}' not found.[/red]")
+    """Compare snapshot OR remote repo with a local directory OR another snapshot."""
+    if not target.exists():
+        console.print(f"[red]Target '{target}' not found.[/red]")
         raise typer.Exit(1)
 
     snap_map = {}
     source_name = "Unknown"
+    target_is_snap = target.suffix == ".vegh"
 
     with console.status("[bold cyan]Preparing Comparison...[/bold cyan]", spinner="dots"):
         try:
@@ -480,14 +481,18 @@ def diff(
                 console.print("[red]Must specify either a .vegh file OR --repo <url>.[/red]")
                 raise typer.Exit(1)
 
-            local_list = dry_run_snap(str(target_dir))
-            local_files = {Path(p).as_posix(): s for p, s in local_list}
+            if target_is_snap:
+                target_files = list_files_details(str(target))
+                local_files = {Path(p).as_posix(): s for p, s in target_files if p != ".vegh.json"}
+            else:
+                local_list = dry_run_snap(str(target))
+                local_files = {Path(p).as_posix(): s for p, s in local_list}
         except Exception as e:
             console.print(f"[red]Error:[/red] {e}")
             raise typer.Exit(1)
 
     all_paths = set(snap_map.keys()) | set(local_files.keys())
-    table = Table(title=f"Diff: {source_name} vs {target_dir}")
+    table = Table(title=f"Diff: {source_name} vs {target}")
     table.add_column("File Path", style="cyan")
     table.add_column("Status", style="bold")
     table.add_column("Details", style="dim")
@@ -502,14 +507,79 @@ def diff(
                 table.add_row(path, "[yellow]MODIFIED[/yellow]", f"Size: {format_bytes(snap_map[path])} -> {format_bytes(local_files[path])}")
                 changes = True
         elif in_src and not in_loc:
-            table.add_row(path, "[red]DELETED[/red]", "In Source, missing locally")
+            msg = "In Source, missing in Target" if target_is_snap else "In Source, missing locally"
+            table.add_row(path, "[red]DELETED[/red]", msg)
             changes = True
         elif not in_src and in_loc:
-            table.add_row(path, "[green]NEW[/green]", "On Disk, missing in source")
+            msg = "In Target, missing in Source" if target_is_snap else "On Disk, missing in source"
+            table.add_row(path, "[green]NEW[/green]", msg)
             changes = True
 
     if changes: console.print(table)
     else: console.print("[bold green]No changes detected (Sync).[/bold green]")
+
+@app.command()
+def audit(
+    file: Path = typer.Argument(..., help=".vegh file to audit"),
+):
+    """Scan snapshot for sensitive data and security risks."""
+    if not file.exists():
+        console.print(f"[red]File '{file}' not found.[/red]")
+        raise typer.Exit(1)
+    
+    console.print(f"[bold cyan]Auditing {file.name}...[/bold cyan]")
+    
+    risks = []
+    
+    try:
+        files = list_files(str(file))
+        
+        # 1. Filename Scan
+        for path in files:
+            for pattern in SENSITIVE_PATTERNS:
+                if re.search(pattern, path, re.IGNORECASE):
+                    risks.append((path, "Filename Match", f"Pattern: {pattern}"))
+        
+        # 2. Content Scan (Config files only)
+        # Scan for common secrets inside textual config files
+        config_exts = {".env", ".json", ".yaml", ".yml", ".toml", ".conf", ".ini", ".xml"}
+        secret_keywords = ["PASSWORD", "SECRET_KEY", "TOKEN", "API_KEY", "ACCESS_KEY", "PRIVATE_KEY"]
+        
+        for path in files:
+            p = Path(path)
+            if p.suffix in config_exts:
+                try:
+                    # Limit content read size if needed, but cat_file reads whole file.
+                    # Assuming config files are small.
+                    content_bytes = cat_file(str(file), path)
+                    try:
+                        content = content_bytes.decode('utf-8')
+                        for keyword in secret_keywords:
+                            if keyword in content:
+                                risks.append((path, "Content Match", f"Found keyword: {keyword}"))
+                                break # Report once per file
+                    except UnicodeDecodeError:
+                        pass # Skip binary files
+                except Exception:
+                    pass
+
+        if not risks:
+            console.print("[bold green]No security risks found.[/bold green]")
+        else:
+            table = Table(title=f"Security Audit: {file.name}")
+            table.add_column("File Path", style="red")
+            table.add_column("Type", style="yellow")
+            table.add_column("Detail", style="dim")
+            
+            for path, type_, detail in risks:
+                table.add_row(path, type_, detail)
+            
+            console.print(table)
+            console.print(f"\n[bold red]Found {len(risks)} potential risks.[/bold red]")
+
+    except Exception as e:
+        console.print(f"[red]Audit failed:[/red] {e}")
+        raise typer.Exit(1)
 
 @app.command()
 def doctor(
@@ -559,6 +629,160 @@ def doctor(
             console.print(f"[red]File not found![/red]")
 
     console.print("\n[bold green]System seems healthy![/bold green]")
+
+@app.command()
+def explore(file: Path = typer.Argument(..., help=".vegh file to explore")):
+    """Interactive Explorer for .vegh files."""
+    if not file.exists():
+        console.print(f"[red]File '{file}' not found.[/red]")
+        raise typer.Exit(1)
+        
+    console.print(f"[bold cyan]Exploring {file.name}. Type 'help' for commands.[/bold cyan]")
+    
+    try:
+        # Load file structure once
+        raw_files = list_files(str(file))
+        # Ensure paths are consistently posix
+        all_files = sorted([Path(p).as_posix() for p in raw_files])
+    except Exception as e:
+        console.print(f"[red]Failed to load snapshot:[/red] {e}")
+        raise typer.Exit(1)
+
+    current_path = "/"
+    
+    while True:
+        try:
+            cmd_input = Prompt.ask(f"[bold green]vegh:{current_path}>[/bold green]")
+            parts = cmd_input.split()
+            if not parts: continue
+            
+            cmd = parts[0]
+            args = parts[1:]
+            
+            if cmd in ("exit", "quit"):
+                break
+            elif cmd == "clear":
+                console.clear()
+            elif cmd == "help":
+                console.print("""
+[bold]Available Commands:[/bold]
+  ls [dir]    List files
+  cd <dir>    Change directory
+  cat <file>  View file content
+  pwd         Show current path
+  clear       Clear screen
+  exit        Exit explorer
+""")
+            elif cmd == "pwd":
+                console.print(current_path)
+            
+            elif cmd == "ls":
+                target_path = current_path
+                if args:
+                    # simplistic path resolution
+                    arg_path = args[0]
+                    if arg_path.startswith("/"): target_path = arg_path
+                    else: target_path = (Path(current_path) / arg_path).as_posix()
+                    
+                    # Normalize: /src/ -> /src
+                    if target_path != "/" and target_path.endswith("/"): 
+                         target_path = target_path.rstrip("/")
+                
+                # Filter items in this directory
+                items = set()
+                prefix = target_path if target_path == "/" else target_path + "/"
+                
+                found_any = False
+                for p in all_files:
+                    # p is like "src/main.rs"
+                    # if target is "/", we want "src"
+                    # if target is "/src", we want "main.rs"
+                    
+                    p_abs = "/" + p # Treat stored paths as relative to root, map to absolute
+                    
+                    if p_abs.startswith(prefix):
+                        found_any = True
+                        rel = p_abs[len(prefix):]
+                        if "/" in rel:
+                            items.add(rel.split("/")[0] + "/") # Directory
+                        else:
+                            items.add(rel) # File
+
+                if not found_any and target_path != "/":
+                     # Check if it is a file?
+                     # Actually, if not found_any, maybe dir doesn't exist
+                     pass
+
+                # Sort: Dirs first
+                sorted_items = sorted(list(items), key=lambda x: (not x.endswith("/"), x))
+                
+                grid = Table.grid(padding=1)
+                for item in sorted_items:
+                    if item.endswith("/"):
+                         grid.add_row(f"[bold blue]{item}[/bold blue]")
+                    else:
+                         grid.add_row(f"[green]{item}[/green]")
+                console.print(grid)
+
+            elif cmd == "cd":
+                if not args: continue
+                new_dir = args[0]
+                
+                if new_dir == "..":
+                    current_path = str(Path(current_path).parent.as_posix())
+                    if current_path == ".": current_path = "/"
+                elif new_dir == "/":
+                    current_path = "/"
+                else:
+                    # Construct target
+                    if new_dir.startswith("/"): target = new_dir
+                    else: target = (Path(current_path) / new_dir).as_posix()
+                    
+                    if target != "/" and target.endswith("/"): target = target.rstrip("/")
+
+                    # Validate existence (is it a directory prefix?)
+                    prefix = target + "/"
+                    is_valid = any(("/"+f).startswith(prefix) for f in all_files)
+                    
+                    if is_valid or target == "/":
+                        current_path = target
+                    else:
+                        console.print(f"[red]Directory not found: {new_dir}[/red]")
+
+            elif cmd == "cat":
+                if not args:
+                    console.print("[red]Usage: cat <file>[/red]")
+                    continue
+                
+                fname = args[0]
+                # Resolve path
+                if fname.startswith("/"): 
+                    full_path = fname.lstrip("/")
+                else:
+                    if current_path == "/": full_path = fname
+                    else: full_path = (Path(current_path) / fname).as_posix().lstrip("/")
+
+                if full_path in all_files:
+                     # Call existing cat logic
+                     try:
+                        content_bytes = cat_file(str(file), full_path)
+                        try:
+                            content_str = bytes(content_bytes).decode('utf-8')
+                            console.print(content_str)
+                        except UnicodeDecodeError:
+                            console.print(f"[yellow]Binary content ({len(content_bytes)} bytes)[/yellow]")
+                     except Exception as e:
+                        console.print(f"[red]Error:[/red] {e}")
+                else:
+                    console.print(f"[red]File not found: {fname}[/red]")
+                    
+            else:
+                console.print(f"[red]Unknown command: {cmd}[/red]")
+
+        except KeyboardInterrupt:
+            break
+        except Exception as e:
+            console.print(f"[red]Error:[/red] {e}")
 
 @app.command()
 def clean():
