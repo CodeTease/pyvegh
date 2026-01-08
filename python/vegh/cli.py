@@ -41,7 +41,7 @@ try:
         scan_locs_dir,
         cat_file,
         list_files_details,
-        get_context_xml, # New function from Rust
+        get_context_xml,
     )
 except ImportError:
     print("Error: Rust core missing. Run 'maturin develop'!")
@@ -121,7 +121,7 @@ NOISE_PATTERNS = [
     "*.map",
     "dist/",
     "build/",
-    "target/", # Rust target
+    "target/", 
     "out/",
     
     # Logs & Temp
@@ -1464,10 +1464,10 @@ def prompt(
     
     if clean:
         final_exclude.extend(NOISE_PATTERNS)
-        console.print("[dim]⚡ --clean mode enabled: Ignoring lock files, binaries & secrets.[/dim]")
+        console.print("[dim]Clean mode enabled: Ignoring lock files, binaries & secrets.[/dim]")
 
     # 2. Call Rust Core
-    with console.status("[bold cyan]Gathering context (Rust Speed 🦀)...[/bold cyan]"):
+    with console.status("[bold cyan]Gathering context...[/bold cyan]"):
         try:
             # Calls the new Rust function
             xml_content = get_context_xml(str(target), exclude=final_exclude)
@@ -1483,7 +1483,7 @@ def prompt(
         # Use our Native helper instead of Pyperclip
         success = _copy_to_clipboard_native(xml_content)
         if success:
-             console.print(f"[green]✔ Copied {len(xml_content)} chars to clipboard![/green]")
+             console.print(f"[green]Copied {len(xml_content)} chars to clipboard![/green]")
         else:
              console.print("[yellow]Clipboard tool not found (pbcopy, clip, xclip/wl-copy missing). Printing to stdout:[/yellow]")
              print(xml_content)

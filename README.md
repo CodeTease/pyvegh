@@ -9,7 +9,8 @@ It delivers the raw performance of Rust (Zstd multithreaded compression, Tar arc
 ## Features
 
 * **Blazing Fast:** Core logic is implemented in Rust using PyO3, utilizing **Zstd Multithreading** and the next-gen **Blake3** hashing algorithm.
-* **Analytics Dashboard:** Instantly visualize your project's Lines of Code (LOC) with a beautiful terminal dashboard—no extraction required.
+* **AI-Ready Context:** Generate clean, token-optimized XML prompts for ChatGPT/Claude in milliseconds.
+* **Analytics Dashboard:** Instantly visualize your project's Lines of Code (LOC) with a beautiful terminal dashboard, no extraction required.
 * **Dry-Run Mode:** Simulate snapshot creation to check file sizes and detect sensitive data risks before packing.
 * **Integrity v2:** Verify data integrity at lightning speed with **Blake3** and inspect metadata (author, timestamp, tool version) without unpacking.
 * **Smart Upload:** Built-in `send` command supporting concurrent **Chunked Uploads** for large files.
@@ -22,7 +23,7 @@ It delivers the raw performance of Rust (Zstd multithreaded compression, Tar arc
 Install directly from PyPI:
 ```bash
 pip install pyvegh
-````
+```
 
 Or build from source (requires Rust):
 
@@ -62,9 +63,9 @@ vegh snap ./my-project --output backup.vegh
 vegh snap ./my-project --dry-run
 ```
 
-### 3\. Analytics 
+### 3\. LOC
 
-View the CodeTease Analytics Dashboard to break down your project by language and lines of code.
+View the Analytics Dashboard to break down your project by language and lines of code.
 
 ```bash
 vegh loc backup.vegh
@@ -82,7 +83,7 @@ Generate a structured XML context of your codebase to feed directly into ChatGPT
 vegh prompt .
 
 # Clean Mode (Recommended):
-# Removes lock files (package-lock.json, uv.lock), logs, secrets and other unnecessary files.
+# Removes lock files (package-lock.json, Cargo.lock), logs, secrets and other unnecessary files.
 vegh prompt . --clean
 
 # Copy to Clipboard (One-shot):
@@ -144,7 +145,7 @@ vegh diff backup.vegh ./current-project
 
 ### 9\. Send
 
-Send the snapshot to a remote server. PyVegh now supports **Chunked Uploads** for reliability.
+Send the snapshot to a remote server. Supports **Chunked Uploads** for reliability.
 
 ```bash
 # Auto-detects if chunking is needed, or force it:
