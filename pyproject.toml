@@ -4,12 +4,28 @@ build-backend = "maturin"
 
 [project]
 name = "pyvegh"
-version = "0.5.0"
+version = "0.6.0"
 description = "Python bindings for Vegh - The Snapshot Tool."
 authors = [{name = "CodeTease"}]
 readme = "README.md"
 requires-python = ">=3.10"
 keywords = ["snapshot", "backup", "rust", "binding", "loc", "analytics"]
+classifiers = [
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15", 
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Rust",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Utilities",
+    "Intended Audience :: Developers",
+    "Development Status :: 5 - Production/Stable",
+]
 license = {file = "LICENSE"}
 dependencies = [
     "typer>=0.20.0",      

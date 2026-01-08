@@ -1,6 +1,5 @@
 # Rust
 /target
-Cargo.lock
 **/*.rs.bk
 
 # Python
@@ -45,3 +44,4 @@ venv.bak/
 *.vegh
 .veghcache/
 .veghhooks.json
+*.xml

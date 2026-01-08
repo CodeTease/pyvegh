@@ -1,6 +1,6 @@
 [package]
 name = "pyvegh"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 authors = ["CodeTease"]
 
@@ -13,7 +13,6 @@ pyo3 = { version = "0.27.1", features = ["extension-module", "abi3-py38"] }
 
 # Core Logic Deps
 tar = "0.4"
-# Kích hoạt zstdmt (multithread) cho zstd
 zstd = { version = "0.13", features = ["zstdmt"] } 
 ignore = "0.4"
 

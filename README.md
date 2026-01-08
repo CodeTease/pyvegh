@@ -9,7 +9,8 @@ It delivers the raw performance of Rust (Zstd multithreaded compression, Tar arc
 ## Features
 
 * **Blazing Fast:** Core logic is implemented in Rust using PyO3, utilizing **Zstd Multithreading** and the next-gen **Blake3** hashing algorithm.
-* **Analytics Dashboard:** Instantly visualize your project's Lines of Code (LOC) with a beautiful terminal dashboard—no extraction required.
+* **AI-Ready Context:** Generate clean, token-optimized XML prompts for ChatGPT/Claude in milliseconds.
+* **Analytics Dashboard:** Instantly visualize your project's Lines of Code (LOC) with a beautiful terminal dashboard, no extraction required.
 * **Dry-Run Mode:** Simulate snapshot creation to check file sizes and detect sensitive data risks before packing.
 * **Integrity v2:** Verify data integrity at lightning speed with **Blake3** and inspect metadata (author, timestamp, tool version) without unpacking.
 * **Smart Upload:** Built-in `send` command supporting concurrent **Chunked Uploads** for large files.
@@ -22,7 +23,7 @@ It delivers the raw performance of Rust (Zstd multithreaded compression, Tar arc
 Install directly from PyPI:
 ```bash
 pip install pyvegh
-````
+```
 
 Or build from source (requires Rust):
 
@@ -62,15 +63,49 @@ vegh snap ./my-project --output backup.vegh
 vegh snap ./my-project --dry-run
 ```
 
-### 3\. Analytics 
+### 3\. LOC
 
-View the CodeTease Analytics Dashboard to break down your project by language and lines of code.
+View the Analytics Dashboard to break down your project by language and lines of code.
 
 ```bash
 vegh loc backup.vegh
+
+# Show Source Lines of Code (SLOC) instead of total LOC
+# Excludes blank lines and comments
+vegh loc backup.vegh --sloc
 ```
 
-### 4\. Inspect & Verify
+### 4\. Prompt
+
+Generate a structured XML context of your codebase to feed directly into ChatGPT, Claude, or Gemini.
+```bash
+# Generate XML context to stdout
+vegh prompt .
+
+# Clean Mode (Recommended):
+# Removes lock files (package-lock.json, Cargo.lock), logs, secrets and other unnecessary files.
+vegh prompt . --clean
+
+# Copy to Clipboard (One-shot):
+vegh prompt . --clean --copy
+
+# Save to file
+vegh prompt . --clean --output context.xml
+```
+
+### 5\. Prune
+
+Clean up old snapshots to free disk space.
+
+```bash
+# Keep only the 5 most recent snapshots in the current directory
+vegh prune --keep 5
+
+# Force clean without confirmation (useful for CI/CD)
+vegh prune --keep 1 --force
+```
+
+### 6\. Check
 
 Check file integrity (Blake3) and view embedded metadata.
 
@@ -78,7 +113,7 @@ Check file integrity (Blake3) and view embedded metadata.
 vegh check backup.vegh
 ```
 
-### 5\. Restore
+### 7\. Restore
 
 Restore the snapshot to a target directory. Supports **Partial Restore**.
 
@@ -93,7 +128,7 @@ vegh restore backup.vegh ./restored-folder --path src/main.rs --path config/
 vegh restore backup.vegh ./restored-folder --flatten
 ```
 
-### 6\. Peek & Diff
+### 8\. Cat & Diff
 
 Inspect content without extracting.
 
@@ -108,16 +143,16 @@ vegh cat backup.vegh image.png --raw > extracted_image.png
 vegh diff backup.vegh ./current-project
 ```
 
-### 7\. Send
+### 9\. Send
 
-Send the snapshot to a remote server. PyVegh now supports **Chunked Uploads** for reliability.
+Send the snapshot to a remote server. Supports **Chunked Uploads** for reliability.
 
 ```bash
 # Auto-detects if chunking is needed, or force it:
 vegh send backup.vegh --force-chunk
 ```
 
-### 8\. Doctor
+### 10\. Doctor
 
 Check your environment and installation health.
 
@@ -125,7 +160,7 @@ Check your environment and installation health.
 vegh doctor
 ```
 
-### 9\. Hooks example
+### 11\. Hooks example
 
 Create a `.veghhooks.json` in your workspace.
 
