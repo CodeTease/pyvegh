@@ -10,6 +10,17 @@ authors = [{name = "CodeTease"}]
 readme = "README.md"
 requires-python = ">=3.10"
 keywords = ["snapshot", "backup", "rust", "binding", "loc", "analytics"]
+classifiers = [
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Utilities",
+    "Intended Audience :: Developers",
+    "Development Status :: 5 - Production/Stable",
+]
 license = {file = "LICENSE"}
 dependencies = [
     "typer>=0.20.0",      

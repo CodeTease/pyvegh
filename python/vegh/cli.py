@@ -41,6 +41,7 @@ try:
         scan_locs_dir,
         cat_file,
         list_files_details,
+        get_context_xml, # New function from Rust
     )
 except ImportError:
     print("Error: Rust core missing. Run 'maturin develop'!")
@@ -96,6 +97,59 @@ SENSITIVE_PATTERNS = [
     r".*\.key$",
     r"credentials\.json",
     r"secrets\..*",
+]
+
+# Noise Patterns for 'vegh prompt --clean'
+# These are files that are technically part of the project but add noise/token cost for LLMs
+NOISE_PATTERNS = [
+    # Lock files
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    "bun.lockb",
+    "Cargo.lock",
+    "uv.lock",
+    "poetry.lock",
+    "Gemfile.lock",
+    "composer.lock",
+    "mix.lock",
+    "go.sum",
+    
+    # Build artifacts / Dist
+    "*.min.js",
+    "*.min.css",
+    "*.map",
+    "dist/",
+    "build/",
+    "target/", 
+    "out/",
+    "Output/" # Inno Setup
+    
+    # Logs & Temp
+    "*.log",
+    "*.tmp",
+    ".DS_Store",
+    
+    # Sensitive (Double check against regex later, but filter file names here)
+    ".env",
+    ".env.*",
+    "*.pem",
+    "*.key",
+    "id_rsa",
+    "*.p12",
+    
+    # Common Binary Assets (If not ignored by git)
+    "*.png", "*.jpg", "*.jpeg", "*.gif", "*.ico", "*.svg",
+    "*.pdf", "*.zip", "*.tar.gz", "*.rar", "*.7z",
+    "*.exe", "*.dll", "*.so", "*.dylib", "*.bin",
+    "*.sqlite", "*.db", "*.sqlite3",
+    "*.mp4", "*.mp3", "*.mov", "*.avi", "*.wmv",
+    "*.woff", "*.woff2", "*.ttf", "*.otf",
+
+    # Other (Unnecessary for code understanding)
+    "LICENSE", "LICENSE.txt", "README.md", "README", "CHANGELOG", "CHANGELOG.md",
+    "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SECURITY.md",
+    ".vscode/", ".idea/",
 ]
 
 # --- VERSION CALLBACK ---
@@ -1332,6 +1386,76 @@ def send(
                         console.print(f"[red]Aborted: {e}[/red]")
                         raise typer.Exit(1)
         console.print("[green]Success![/green]")
+
+# --- VEGH PROMPT COMMAND ---
+
+@app.command()
+def prompt(
+    target: Path = typer.Argument(Path("."), help="Target codebase"),
+    clean: bool = typer.Option(
+        False, 
+        "--clean", 
+        help="Remove lock files, binaries, and secrets to save tokens."
+    ),
+    exclude: Optional[List[str]] = typer.Option(
+        None, 
+        "--exclude", 
+        "-e", 
+        help="Custom patterns to exclude"
+    ),
+    copy: bool = typer.Option(
+        False, 
+        "--copy", 
+        "-c", 
+        help="Copy output to clipboard"
+    ),
+    output: Optional[Path] = typer.Option(
+        None, 
+        "--output", 
+        "-o", 
+        help="Save XML to file"
+    ),
+):
+    """
+    Generate XML context for LLM (ChatGPT/Claude).
+    """
+    if not target.exists():
+        console.print(f"[red]Path '{target}' not found.[/red]")
+        raise typer.Exit(1)
+
+    # 1. Prepare Exclude Patterns
+    final_exclude = []
+    if exclude:
+        final_exclude.extend(exclude)
+    
+    if clean:
+        final_exclude.extend(NOISE_PATTERNS)
+        console.print("[dim]⚡ --clean mode enabled: Ignoring lock files, binaries & secrets.[/dim]")
+
+    # 2. Call Rust Core
+    with console.status("[bold cyan]Gathering context (Rust Speed 🦀)...[/bold cyan]"):
+        try:
+            # Calls the new Rust function
+            xml_content = get_context_xml(str(target), exclude=final_exclude)
+        except Exception as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(1)
+
+    # 3. Handle Output
+    if output:
+        output.write_text(xml_content, encoding="utf-8")
+        console.print(f"[green]Saved prompt to {output}[/green]")
+    elif copy:
+        try:
+            import pyperclip
+            pyperclip.copy(xml_content)
+            console.print(f"[green]✔ Copied {len(xml_content)} chars to clipboard![/green]")
+        except ImportError:
+            console.print("[yellow]Module 'pyperclip' not found. Install it to use --copy.[/yellow]")
+            print(xml_content)
+    else:
+        # Default: Print to stdout
+        print(xml_content)
 
 
 if __name__ == "__main__":
