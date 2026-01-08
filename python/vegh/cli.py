@@ -42,6 +42,7 @@ try:
         cat_file,
         list_files_details,
         get_context_xml,
+        search_snap,
     )
 except ImportError:
     print("Error: Rust core missing. Run 'maturin develop'!")
@@ -1053,10 +1054,66 @@ def explore(file: Path = typer.Argument(..., help=".vegh file to explore")):
   cat <file>  View file content
   pwd         Show current path
   clear       Clear screen
+  grep <text> [-i]   Search text in files (-i for case-insensitive)
   exit        Exit explorer
 """)
             elif cmd == "pwd":
                 console.print(current_path)
+
+            elif cmd == "grep":
+                if not args:
+                    console.print("[red]Usage: grep <text> [-i][/red]")
+                    continue
+                
+                # Simple argument parsing for -i flag
+                case_sensitive = True
+                search_text = args[0]
+                
+                # Handle cases like: grep -i "foo" OR grep "foo" -i
+                if len(args) > 1:
+                    if args[0] == "-i":
+                         case_sensitive = False
+                         search_text = args[1]
+                    elif args[1] == "-i":
+                         case_sensitive = False
+                         search_text = args[0]
+
+                # Determine search scope based on current directory in explore
+                # If root, search everything. If subdir, filter by prefix.
+                search_prefix = current_path if current_path != "/" else ""
+                
+                # Remove leading slash to match tar paths (e.g., "src/main.rs" not "/src/main.rs")
+                if search_prefix.startswith("/"):
+                    search_prefix = search_prefix[1:]
+
+                with console.status(f"[cyan]Searching '{search_text}'...[/cyan]"):
+                    try:
+                        # Call Rust Core (Zero extra dep!)
+                        matches = search_snap(str(file), search_text, search_prefix, case_sensitive)
+                        
+                        if not matches:
+                            console.print("[yellow]No matches found.[/yellow]")
+                        else:
+                            # Render results nicely
+                            table = Table(box=None, show_header=False)
+                            table.add_column("Location", style="cyan")
+                            table.add_column("Content", style="white")
+                            
+                            current_file_group = ""
+                            for fpath, line_num, content in matches:
+                                # Group output by file for cleaner look
+                                if fpath != current_file_group:
+                                    table.add_row(f"\n[bold green]{fpath}[/bold green]", "")
+                                    current_file_group = fpath
+                                
+                                # Strip whitespace for cleaner display
+                                table.add_row(f"  :{line_num}", f"[dim]{content.strip()}[/dim]")
+                            
+                            console.print(table)
+                            console.print(f"\n[bold]Found {len(matches)} matches.[/bold]")
+
+                    except Exception as e:
+                        console.print(f"[red]Grep error:[/red] {e}")
 
             elif cmd == "ls":
                 target_path = current_path

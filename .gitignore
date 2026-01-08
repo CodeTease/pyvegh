@@ -44,3 +44,4 @@ venv.bak/
 *.vegh
 .veghcache/
 .veghhooks.json
+*.xml
