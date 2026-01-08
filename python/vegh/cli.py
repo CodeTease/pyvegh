@@ -1451,7 +1451,7 @@ def prompt(
     ),
 ):
     """
-    Generate XML context for LLM (ChatGPT/Claude).
+    Generate XML context for LLM.
     """
     if not target.exists():
         console.print(f"[red]Path '{target}' not found.[/red]")
