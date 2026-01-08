@@ -12,12 +12,21 @@ import hashlib
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Tuple, Dict
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.tree import Tree
 from rich.prompt import Prompt, Confirm
+
+# Try to import package version metadata (Modern Pythonic way)
+try:
+    from importlib.metadata import version as get_package_version, PackageNotFoundError
+except ImportError:
+    # Fallback for older environments or odd setups
+    get_package_version = None
+    PackageNotFoundError = Exception
+
 
 # Import core functionality
 try:
@@ -37,7 +46,7 @@ except ImportError:
     print("Error: Rust core missing. Run 'maturin develop'!")
     exit(1)
 
-# Import new Analytics module
+# Import Analytics module
 try:
     from .analytics import render_dashboard, scan_sloc, calculate_sloc
 except ImportError:
@@ -45,23 +54,31 @@ except ImportError:
     scan_sloc = None
     calculate_sloc = None
 
+
+# --- APP INITIALIZATION ---
+
+# Define context settings to enable '-h' alongside '--help'
+CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
+
 app = typer.Typer(
     name="vegh",
     help="Vegh (Python Edition) - The Snapshot Tool",
     add_completion=False,
     no_args_is_help=True,
     rich_markup_mode="rich",
+    context_settings=CONTEXT_SETTINGS,  # Enable -h flag
 )
 
 # Sub-app for configuration commands
 config_app = typer.Typer(
-    help="Manage configuration settings (Server, Repo behavior, etc.)"
+    help="Manage configuration settings (Server, Repo behavior, etc.)",
+    context_settings=CONTEXT_SETTINGS,  # Enable -h flag for sub-commands too
 )
 app.add_typer(config_app, name="config")
 
 console = Console()
 
-# --- PATH CONSTANTS (The "Feng Shui" Update) ---
+# --- PATH CONSTANTS ---
 VEGH_ROOT = Path.home() / ".vegh"
 CONFIG_FILE = VEGH_ROOT / "config.json"
 CACHE_ROOT = VEGH_ROOT / "cache"
@@ -72,7 +89,6 @@ HOOKS_FILE = ".veghhooks.json"
 CHUNK_THRESHOLD = 100 * 1024 * 1024  # 100MB
 CHUNK_SIZE = 10 * 1024 * 1024  # 10MB
 CONCURRENT_WORKERS = 4
-LARGE_FILE_THRESHOLD = 50 * 1024 * 1024  # 50MB warn for dry-run
 SENSITIVE_PATTERNS = [
     r"\.env(\..+)?$",
     r".*id_rsa.*",
@@ -82,7 +98,43 @@ SENSITIVE_PATTERNS = [
     r"secrets\..*",
 ]
 
-# --- Helper Functions ---
+# --- VERSION CALLBACK ---
+
+def version_callback(value: bool):
+    """
+    Callback function to handle version flags (-v, --version).
+    It fetches the installed package version or falls back to 'dev'.
+    """
+    if value:
+        try:
+            # Attempt to get the installed version of pyvegh
+            v = get_package_version("pyvegh") if get_package_version else "dev"
+        except PackageNotFoundError:
+            v = "dev-build"
+            
+        console.print(f"PyVegh CLI Version: [bold green]{v}[/bold green]")
+        raise typer.Exit()
+
+
+@app.callback()
+def main(
+    ctx: typer.Context,
+    version: Optional[bool] = typer.Option(
+        None,
+        "--version",
+        "-v",
+        callback=version_callback,
+        is_eager=True, # Process this before other commands
+        help="Show the application version and exit."
+    ),
+):
+    """
+    Vegh: The lightning-fast snapshot and analytics tool.
+    """
+    pass
+
+
+# --- HELPER FUNCTIONS ---
 
 
 def load_config() -> Dict:
@@ -153,14 +205,7 @@ def build_tree(path_list: List[str], root_name: str) -> Tree:
     return tree
 
 
-def check_sensitive(path: str) -> bool:
-    for pattern in SENSITIVE_PATTERNS:
-        if re.search(pattern, path, re.IGNORECASE):
-            return True
-    return False
-
-
-# --- REPO MANAGEMENT (The Vault Logic) ---
+# --- REPO MANAGEMENT ---
 
 
 def ensure_repo(
@@ -181,8 +226,6 @@ def ensure_repo(
     # 2. Check Global Config for "Always Offline" preference
     cfg = load_config()
     always_offline = cfg.get("repo_offline", False)
-
-    # Effective offline mode: either CLI flag OR global config says so
     is_offline = offline_flag or always_offline
 
     # 3. Identify Repo (Hash URL to avoid filesystem issues)
@@ -191,7 +234,6 @@ def ensure_repo(
     friendly_name = url.split("/")[-1].replace(".git", "")
 
     # 4. Smart Sync
-    # If offline mode active AND cache exists -> Skip network
     if is_offline and repo_path.exists():
         reason = "CLI Flag" if offline_flag else "Global Config"
         console.print(
@@ -203,7 +245,7 @@ def ensure_repo(
 
     try:
         if not repo_path.exists():
-            # A. First Clone (Shallow) - Network is mandatory here
+            # A. First Clone (Shallow)
             if is_offline:
                 console.print(
                     "[dim]Cache miss. Connecting to network to clone...[/dim]"
@@ -230,7 +272,6 @@ def ensure_repo(
             console.print(
                 f"[bold cyan]🔄 {action} {friendly_name} (checking remote)...[/bold cyan]"
             )
-
             # Safety: Ensure remote URL matches
             subprocess.run(
                 ["git", "remote", "set-url", "origin", url],
@@ -238,7 +279,6 @@ def ensure_repo(
                 check=True,
                 stderr=subprocess.PIPE,
             )
-
             # Fetch latest delta
             fetch_cmd = ["git", "fetch", "--depth", "1", "origin"]
             if branch:
@@ -251,27 +291,15 @@ def ensure_repo(
                 stderr=subprocess.PIPE,
                 timeout=120,
             )
-
             # Reset to match remote
             target_ref = f"origin/{branch}" if branch else "origin/HEAD"
-
-            if branch:
-                subprocess.run(
-                    ["git", "reset", "--hard", target_ref],
-                    cwd=repo_path,
-                    check=True,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.PIPE,
-                )
-            else:
-                subprocess.run(
-                    ["git", "pull", "--rebase"],
-                    cwd=repo_path,
-                    check=True,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.PIPE,
-                )
-
+            subprocess.run(
+                ["git", "reset", "--hard", target_ref],
+                cwd=repo_path,
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
             # Cleanup artifacts
             subprocess.run(
                 ["git", "clean", "-fdx"],
@@ -319,6 +347,7 @@ def execute_hooks(commands: List[str], hook_name: str) -> bool:
     env["PYTHONIOENCODING"] = "utf-8"
     for cmd in commands:
         console.print(f"  [dim]$ {cmd}[/dim]")
+        # Windows encoding fix
         final_cmd = f"chcp 65001 >NUL && {cmd}" if os.name == "nt" else cmd
         try:
             sys.stdout.flush()
@@ -337,7 +366,7 @@ def execute_hooks(commands: List[str], hook_name: str) -> bool:
     return True
 
 
-# --- CONFIG COMMANDS (New Structure) ---
+# --- CONFIG COMMANDS ---
 
 
 @config_app.command("send")
@@ -372,13 +401,10 @@ def config_repo(
 ):
     """Configure Git Repository behavior."""
     cfg = load_config()
-
     console.print("[bold cyan]📦 Repository Cache Configuration[/bold cyan]")
 
-    # If flag is not provided, ask interactively
     if offline is None:
         current_setting = cfg.get("repo_offline", False)
-        # Fun prompt
         offline = Confirm.ask(
             "Always run in Offline Mode if cache exists? (Saves bandwidth)",
             default=current_setting,
@@ -806,8 +832,7 @@ def audit(
             p = Path(path)
             if p.suffix in config_exts:
                 try:
-                    # Limit content read size if needed, but cat_file reads whole file.
-                    # Assuming config files are small.
+                    # Limit content read size if needed.
                     content_bytes = cat_file(str(file), path)
                     try:
                         content = content_bytes.decode("utf-8")
@@ -982,8 +1007,6 @@ def explore(file: Path = typer.Argument(..., help=".vegh file to explore")):
                             items.add(rel)  # File
 
                 if not found_any and target_path != "/":
-                    # Check if it is a file?
-                    # Actually, if not found_any, maybe dir doesn't exist
                     pass
 
                 # Sort: Dirs first
