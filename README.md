@@ -74,7 +74,25 @@ vegh loc backup.vegh
 vegh loc backup.vegh --sloc
 ```
 
-### 4\. Clean Up
+### 4\. Prompt
+
+Generate a structured XML context of your codebase to feed directly into ChatGPT, Claude, or Gemini.
+```bash
+# Generate XML context to stdout
+vegh prompt .
+
+# Clean Mode (Recommended):
+# Removes lock files (package-lock.json, uv.lock), logs, secrets and other unnecessary files.
+vegh prompt . --clean
+
+# Copy to Clipboard (One-shot):
+vegh prompt . --clean --copy
+
+# Save to file
+vegh prompt . --clean --output context.xml
+```
+
+### 5\. Prune
 
 Clean up old snapshots to free disk space.
 
@@ -86,7 +104,7 @@ vegh prune --keep 5
 vegh prune --keep 1 --force
 ```
 
-### 5\. Inspect & Verify
+### 6\. Check
 
 Check file integrity (Blake3) and view embedded metadata.
 
@@ -94,7 +112,7 @@ Check file integrity (Blake3) and view embedded metadata.
 vegh check backup.vegh
 ```
 
-### 6\. Restore
+### 7\. Restore
 
 Restore the snapshot to a target directory. Supports **Partial Restore**.
 
@@ -109,7 +127,7 @@ vegh restore backup.vegh ./restored-folder --path src/main.rs --path config/
 vegh restore backup.vegh ./restored-folder --flatten
 ```
 
-### 7\. Peek & Diff
+### 8\. Cat & Diff
 
 Inspect content without extracting.
 
@@ -124,7 +142,7 @@ vegh cat backup.vegh image.png --raw > extracted_image.png
 vegh diff backup.vegh ./current-project
 ```
 
-### 8\. Send
+### 9\. Send
 
 Send the snapshot to a remote server. PyVegh now supports **Chunked Uploads** for reliability.
 
@@ -133,7 +151,7 @@ Send the snapshot to a remote server. PyVegh now supports **Chunked Uploads** fo
 vegh send backup.vegh --force-chunk
 ```
 
-### 9\. Doctor
+### 10\. Doctor
 
 Check your environment and installation health.
 
@@ -141,7 +159,7 @@ Check your environment and installation health.
 vegh doctor
 ```
 
-### 10\. Hooks example
+### 11\. Hooks example
 
 Create a `.veghhooks.json` in your workspace.
 

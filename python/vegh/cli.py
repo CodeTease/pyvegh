@@ -121,9 +121,8 @@ NOISE_PATTERNS = [
     "*.map",
     "dist/",
     "build/",
-    "target/", 
+    "target/", # Rust target
     "out/",
-    "Output/" # Inno Setup
     
     # Logs & Temp
     "*.log",
@@ -144,12 +143,14 @@ NOISE_PATTERNS = [
     "*.exe", "*.dll", "*.so", "*.dylib", "*.bin",
     "*.sqlite", "*.db", "*.sqlite3",
     "*.mp4", "*.mp3", "*.mov", "*.avi", "*.wmv",
-    "*.woff", "*.woff2", "*.ttf", "*.otf",
+    "*.woff", "*.woff2", "*.ttf", "*.eot",
+    "*.flac", "*.aac", "*.ogg", "*.opus",
+    "*.m4a", "*.webm", "*.vegh",
 
     # Other (Unnecessary for code understanding)
     "LICENSE", "LICENSE.txt", "README.md", "README", "CHANGELOG", "CHANGELOG.md",
     "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SECURITY.md",
-    ".vscode/", ".idea/",
+    ".vscode/", ".idea/"
 ]
 
 # --- VERSION CALLBACK ---
@@ -258,6 +259,39 @@ def build_tree(path_list: List[str], root_name: str) -> Tree:
             parent_path = current_path
     return tree
 
+# --- NATIVE CLIPBOARD HELPER ---
+def _copy_to_clipboard_native(text: str) -> bool:
+    """
+    Copies text to clipboard using system tools (Zero-Dependency).
+    Supports macOS (pbcopy), Windows (clip), Linux (xclip/wl-copy).
+    """
+    platform = sys.platform
+    try:
+        if platform == "darwin":  # macOS
+            subprocess.run("pbcopy", input=text.encode("utf-8"), check=True)
+            return True
+        elif platform == "win32": # Windows
+            # 'clip' expects CRLF and UTF-16 le sometimes, but usually system encoding works for pipes
+            # Using strip() to avoid adding extra newline that 'clip' might add
+            subprocess.run("clip", input=text.encode("utf-16"), check=True)
+            return True
+        elif platform.startswith("linux"): # Linux (Wayland or X11)
+            # Try Wayland first
+            if shutil.which("wl-copy"):
+                subprocess.run("wl-copy", input=text.encode("utf-8"), check=True)
+                return True
+            # Try X11
+            elif shutil.which("xclip"):
+                subprocess.run(["xclip", "-selection", "clipboard"], input=text.encode("utf-8"), check=True)
+                return True
+            elif shutil.which("xsel"):
+                 subprocess.run(["xsel", "--clipboard", "--input"], input=text.encode("utf-8"), check=True)
+                 return True
+            else:
+                return False
+    except Exception:
+        return False
+    return False
 
 # --- REPO MANAGEMENT ---
 
@@ -1407,7 +1441,7 @@ def prompt(
         False, 
         "--copy", 
         "-c", 
-        help="Copy output to clipboard"
+        help="Copy output to clipboard (No extra deps required)"
     ),
     output: Optional[Path] = typer.Option(
         None, 
@@ -1446,13 +1480,13 @@ def prompt(
         output.write_text(xml_content, encoding="utf-8")
         console.print(f"[green]Saved prompt to {output}[/green]")
     elif copy:
-        try:
-            import pyperclip
-            pyperclip.copy(xml_content)
-            console.print(f"[green]✔ Copied {len(xml_content)} chars to clipboard![/green]")
-        except ImportError:
-            console.print("[yellow]Module 'pyperclip' not found. Install it to use --copy.[/yellow]")
-            print(xml_content)
+        # Use our Native helper instead of Pyperclip
+        success = _copy_to_clipboard_native(xml_content)
+        if success:
+             console.print(f"[green]✔ Copied {len(xml_content)} chars to clipboard![/green]")
+        else:
+             console.print("[yellow]Clipboard tool not found (pbcopy, clip, xclip/wl-copy missing). Printing to stdout:[/yellow]")
+             print(xml_content)
     else:
         # Default: Print to stdout
         print(xml_content)
