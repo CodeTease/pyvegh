@@ -11,7 +11,7 @@ from ._core import (
     scan_locs_dir,
 )
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 __all__ = [
     "create_snap",
     "dry_run_snap",

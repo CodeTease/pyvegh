@@ -1,78 +1,106 @@
-use blake3::Hasher;
-use chrono::Utc;
-use ignore::{WalkBuilder, overrides::OverrideBuilder};
-use memmap2::MmapOptions;
 use pyo3::exceptions::{PyIOError, PyValueError};
 use pyo3::prelude::*;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs::{self, File};
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
-use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::fs::File;
+use std::io::{BufRead, Read, Seek, SeekFrom};
+use std::path::Path;
 
-// --- Constants ---
-const PRESERVED_FILES: &[&str] = &[".veghignore", ".gitignore", ".dockerignore", ".npmignore"];
-const CACHE_DIR: &str = ".veghcache";
-const CACHE_FILE: &str = "index.json";
-const SNAPSHOT_FORMAT_VERSION: &str = "2";
-const VEGH_COMPAT_VERSION: &str = "0.3.0";
+// Declare modules so they are available to the crate
+pub mod core;
+pub mod hash;
+pub mod storage;
 
-// --- Structs (Keep existing) ---
-#[derive(Serialize, Deserialize)]
-struct VeghMetadata {
-    author: String,
-    timestamp: i64,
-    comment: String,
-    tool_version: String,
-    format_version: String,
-}
+use crate::core::{create_snap_logic, restore_snap_logic};
+use crate::storage::{SnapshotManifest, CACHE_DIR};
+use ignore::{overrides::OverrideBuilder, WalkBuilder};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct FileCacheEntry {
-    size: u64,
-    modified: u64,
-}
+// Constants synced with core/storage
+const PRESERVED_FILES: &[&str] = &[
+    ".veghignore",
+    ".gitignore",
+    ".npmignore",
+    ".dockerignore",
+];
 
-#[derive(Serialize, Deserialize, Debug, Default)]
-struct VeghCache {
-    last_snapshot: i64,
-    files: HashMap<String, FileCacheEntry>,
-}
+// --- Helper Functions (Internal) ---
 
-// --- Helper Functions (Keep existing) ---
+/// Helper to load snapshot content (works for both V2 legacy and V3 blobs).
+fn load_snapshot_data(
+    file_path: &Path,
+    filter_fn: impl Fn(&str) -> bool,
+) -> Result<Vec<(String, Vec<u8>)>, std::io::Error> {
+    let file = File::open(file_path)?;
+    let decoder = zstd::stream::read::Decoder::new(file)?;
+    let mut archive = tar::Archive::new(decoder);
 
-fn get_cache_path(source: &Path) -> PathBuf {
-    source.join(CACHE_DIR).join(CACHE_FILE)
-}
+    let mut blobs: HashMap<String, Vec<u8>> = HashMap::new();
+    let mut manifest_opt: Option<SnapshotManifest> = None;
+    let mut legacy_files: Vec<(String, Vec<u8>)> = Vec::new();
 
-fn load_cache(source: &Path) -> VeghCache {
-    let cache_path = get_cache_path(source);
-    if cache_path.exists() {
-        if let Ok(file) = File::open(&cache_path) {
-            if let Ok(cache) = serde_json::from_reader(file) {
-                return cache;
+    // Pass 1: Read everything into memory (Blobs & Manifest)
+    for entry in archive.entries()? {
+        let mut entry = entry?;
+        let path = entry.path()?.to_string_lossy().to_string();
+
+        if path == "manifest.json" {
+            // Found the treasure map!
+            if let Ok(manifest) = serde_json::from_reader::<_, SnapshotManifest>(&mut entry) {
+                manifest_opt = Some(manifest);
+            }
+        } else if path.starts_with("blobs/") {
+            // It's a chunk of data, store it.
+            let hash = path.strip_prefix("blobs/").unwrap_or(&path).to_string();
+            let mut data = Vec::new();
+            entry.read_to_end(&mut data)?;
+            blobs.insert(hash, data);
+        } else if path != ".vegh.json" {
+            // Likely a V2 file or just a loose file
+            if filter_fn(&path) {
+                let mut data = Vec::new();
+                entry.read_to_end(&mut data)?;
+                legacy_files.push((path, data));
             }
         }
-        let _ = fs::remove_dir_all(source.join(CACHE_DIR));
     }
-    VeghCache::default()
+
+    // Pass 2: Reconstruct files if it's V3
+    if let Some(manifest) = manifest_opt {
+        let mut reconstructed = Vec::new();
+        for entry in manifest.entries {
+            if !filter_fn(&entry.path) {
+                continue;
+            }
+
+            let mut content = Vec::new();
+            // Default to using the file hash if chunks are missing (backward compat / single chunk)
+            let chunks = entry.chunks.unwrap_or_else(|| vec![entry.hash.clone()]);
+
+            let mut valid = true;
+            for chunk_hash in chunks {
+                if let Some(blob_data) = blobs.get(&chunk_hash) {
+                    content.extend_from_slice(blob_data);
+                } else {
+                    // Missing blob? That's bad.
+                    valid = false;
+                    break;
+                }
+            }
+
+            if valid {
+                reconstructed.push((entry.path, content));
+            }
+        }
+        Ok(reconstructed)
+    } else {
+        // Fallback for V2 (No manifest found)
+        Ok(legacy_files)
+    }
 }
 
-fn save_cache(source: &Path, cache: &VeghCache) -> std::io::Result<()> {
-    let cache_dir = source.join(CACHE_DIR);
-    if !cache_dir.exists() {
-        fs::create_dir(&cache_dir)?;
-    }
-    let file = File::create(get_cache_path(source))?;
-    serde_json::to_writer_pretty(file, cache)?;
-    Ok(())
-}
-
-// --- Main PyFunctions ---
+// --- PyFunctions Wrappers ---
 
 #[pyfunction]
-#[pyo3(signature = (source, output, level=3, comment=None, include=None, exclude=None, no_cache=false))]
+#[pyo3(signature = (source, output, level=3, comment=None, include=None, exclude=None, no_cache=false, verbose=true))]
 fn create_snap(
     source: String,
     output: String,
@@ -81,276 +109,22 @@ fn create_snap(
     include: Option<Vec<String>>,
     exclude: Option<Vec<String>>,
     no_cache: bool,
+    verbose: bool, // Added flag to control UI output from Python
 ) -> PyResult<usize> {
     let source_path = Path::new(&source);
     let output_path = Path::new(&output);
-    let file = File::create(output_path).map_err(|e| PyIOError::new_err(e.to_string()))?;
 
-    // Resolve absolute path to avoid recursive packing of output file
-    let output_abs = fs::canonicalize(output_path).unwrap_or_else(|_| output_path.to_path_buf());
-
-    let mut cache = if no_cache {
-        VeghCache::default()
-    } else {
-        load_cache(source_path)
-    };
-    let mut new_cache_files = HashMap::new();
-
-    let meta = VeghMetadata {
-        author: "CodeTease (PyVegh)".to_string(),
-        timestamp: Utc::now().timestamp(),
-        comment: comment.unwrap_or_default(),
-        tool_version: VEGH_COMPAT_VERSION.to_string(),
-        format_version: SNAPSHOT_FORMAT_VERSION.to_string(),
-    };
-    let meta_json = serde_json::to_string_pretty(&meta).unwrap();
-
-    let mut encoder = zstd::stream::write::Encoder::new(file, level)
-        .map_err(|e| PyIOError::new_err(e.to_string()))?;
-
-    // Enable multithreading for Zstd
-    let workers = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(1);
-    encoder
-        .multithread(workers as u32)
-        .map_err(|e| PyIOError::new_err(format!("Zstd MT error: {}", e)))?;
-
-    let mut tar = tar::Builder::new(encoder);
-
-    // Add Metadata file
-    let mut header = tar::Header::new_gnu();
-    header.set_path(".vegh.json").unwrap();
-    header.set_size(meta_json.len() as u64);
-    header.set_mode(0o644);
-    header.set_cksum();
-    tar.append_data(&mut header, ".vegh.json", meta_json.as_bytes())
-        .map_err(|e| PyIOError::new_err(e.to_string()))?;
-
-    let mut count = 0;
-
-    // Always include preserved config files if they exist
-    for &name in PRESERVED_FILES {
-        let p = source_path.join(name);
-        if p.exists() {
-            let mut f = File::open(&p).map_err(|e| PyIOError::new_err(e.to_string()))?;
-            tar.append_file(name, &mut f)
-                .map_err(|e| PyIOError::new_err(e.to_string()))?;
-            count += 1;
-        }
-    }
-
-    // --- FIX: Override Logic ---
-    let mut override_builder = OverrideBuilder::new(source_path);
-
-    if let Some(incs) = include {
-        // Positive pattern = Whitelist (Include ONLY these)
-        for pattern in incs {
-            let _ = override_builder.add(&pattern);
-        }
-    }
-    if let Some(excs) = exclude {
-        // Negative pattern = Blacklist (Exclude these). MUST start with '!'
-        for pattern in excs {
-            let _ = override_builder.add(&format!("!{}", pattern));
-        }
-    }
-    // Always exclude internal cache
-    let _ = override_builder.add(&format!("!{}", CACHE_DIR));
-
-    let overrides = override_builder
-        .build()
-        .map_err(|e| PyIOError::new_err(format!("Override build fail: {}", e)))?;
-
-    let mut builder = WalkBuilder::new(source_path);
-    for &f in PRESERVED_FILES {
-        builder.add_custom_ignore_filename(f);
-    }
-
-    builder.hidden(true).git_ignore(true).overrides(overrides);
-
-    for res in builder.build() {
-        if let Ok(entry) = res {
-            let path = entry.path();
-            if path.is_file() {
-                // Avoid self-inclusion
-                if let Ok(abs) = fs::canonicalize(path) {
-                    if abs == output_abs {
-                        continue;
-                    }
-                }
-
-                let name = path.strip_prefix(source_path).unwrap_or(path);
-                let name_str = name.to_string_lossy().to_string();
-
-                // Skip files we already manually added
-                if PRESERVED_FILES.contains(&name_str.as_str()) {
-                    continue;
-                }
-
-                // Cache logic could go here (skipped for brevity in this context)
-                let metadata = path
-                    .metadata()
-                    .map_err(|e| PyIOError::new_err(e.to_string()))?;
-                let modified = metadata
-                    .modified()
-                    .unwrap_or(SystemTime::UNIX_EPOCH)
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
-                let size = metadata.len();
-
-                new_cache_files.insert(name_str, FileCacheEntry { size, modified });
-
-                tar.append_path_with_name(path, name)
-                    .map_err(|e| PyIOError::new_err(e.to_string()))?;
-                count += 1;
-            }
-        }
-    }
-
-    cache.files = new_cache_files;
-    cache.last_snapshot = Utc::now().timestamp();
-    if !no_cache {
-        let _ = save_cache(source_path, &cache);
-    }
-
-    let enc = tar.into_inner().unwrap();
-    enc.finish()
-        .map_err(|e| PyIOError::new_err(format!("Finalize error: {}", e)))?;
-
-    Ok(count)
-}
-
-#[pyfunction]
-#[pyo3(signature = (file_path, query, prefix=None, case_sensitive=true))]
-fn search_snap(
-    file_path: String,
-    query: String,
-    prefix: Option<String>,
-    case_sensitive: bool,
-) -> PyResult<Vec<(String, usize, String)>> {
-    // Open the snapshot file
-    let file = File::open(&file_path).map_err(|e| PyIOError::new_err(e.to_string()))?;
-
-    // Setup decompression and tar archive reading
-    let decoder = zstd::stream::read::Decoder::new(file).unwrap();
-    let mut archive = tar::Archive::new(decoder);
-
-    let mut results = Vec::new();
-    let prefix_str = prefix.unwrap_or_default();
-
-    // Pre-calculate lowercase query for case-insensitive search to avoid re-allocation
-    let query_lower = if !case_sensitive {
-        query.to_lowercase()
-    } else {
-        String::new()
-    };
-
-    if let Ok(entries) = archive.entries() {
-        for entry in entries {
-            if let Ok(mut e) = entry {
-                let path = e.path().unwrap().into_owned();
-                let path_str = path.to_string_lossy().to_string();
-
-                // 1. Filter by path scope (e.g., inside a specific folder in explore mode)
-                // Also skip internal metadata file
-                if !path_str.starts_with(&prefix_str) || path_str == ".vegh.json" {
-                    continue;
-                }
-
-                // 2. Read content as text
-                // Using read_to_string automatically handles UTF-8 validation.
-                // If it fails (binary file), we simply skip it.
-                let mut content = String::new();
-                if e.read_to_string(&mut content).is_ok() {
-                    for (i, line) in content.lines().enumerate() {
-                        let is_match = if case_sensitive {
-                            line.contains(&query)
-                        } else {
-                            // Simple case-insensitive check using std (no extra deps)
-                            line.to_lowercase().contains(&query_lower)
-                        };
-
-                        if is_match {
-                            // Truncate long lines for better CLI display
-                            let display_line = if line.len() > 100 {
-                                format!("{}...", &line[..100])
-                            } else {
-                                line.to_string()
-                            };
-
-                            // Return tuple: (File Path, Line Number, Content)
-                            results.push((path_str.clone(), i + 1, display_line));
-                        }
-                    }
-                }
-            }
-        }
-    }
-    Ok(results)
-}
-
-#[pyfunction]
-#[pyo3(signature = (source, include=None, exclude=None))]
-fn dry_run_snap(
-    source: String,
-    include: Option<Vec<String>>,
-    exclude: Option<Vec<String>>,
-) -> PyResult<Vec<(String, u64)>> {
-    let source_path = Path::new(&source);
-    let mut results = Vec::new();
-
-    for &name in PRESERVED_FILES {
-        let p = source_path.join(name);
-        if p.exists() {
-            if let Ok(meta) = fs::metadata(&p) {
-                results.push((name.to_string(), meta.len()));
-            }
-        }
-    }
-
-    // --- FIX: Override Logic ---
-    let mut override_builder = OverrideBuilder::new(source_path);
-    if let Some(incs) = include {
-        for pattern in incs {
-            let _ = override_builder.add(&pattern);
-        }
-    }
-    if let Some(excs) = exclude {
-        // Exclude must start with '!'
-        for pattern in excs {
-            let _ = override_builder.add(&format!("!{}", pattern));
-        }
-    }
-    let _ = override_builder.add(&format!("!{}", CACHE_DIR));
-
-    let overrides = override_builder
-        .build()
-        .map_err(|e| PyIOError::new_err(format!("Override build fail: {}", e)))?;
-
-    let mut builder = WalkBuilder::new(source_path);
-    for &f in PRESERVED_FILES {
-        builder.add_custom_ignore_filename(f);
-    }
-    builder.hidden(true).git_ignore(true).overrides(overrides);
-
-    for res in builder.build() {
-        if let Ok(entry) = res {
-            let path = entry.path();
-            if path.is_file() {
-                let name = path.strip_prefix(source_path).unwrap_or(path);
-                let name_str = name.to_string_lossy().to_string();
-                if PRESERVED_FILES.contains(&name_str.as_str()) {
-                    continue;
-                }
-                let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
-                results.push((name_str, size));
-            }
-        }
-    }
-
-    Ok(results)
+    create_snap_logic(
+        source_path,
+        output_path,
+        level,
+        comment,
+        include.unwrap_or_default(),
+        exclude.unwrap_or_default(),
+        no_cache,
+        verbose,
+    )
+    .map_err(|e| PyIOError::new_err(e.to_string()))
 }
 
 #[pyfunction]
@@ -361,53 +135,14 @@ fn restore_snap(
     include: Option<Vec<String>>,
     flatten: bool,
 ) -> PyResult<()> {
-    let out = Path::new(&out_dir);
-    if !out.exists() {
-        fs::create_dir_all(out).map_err(|e| PyIOError::new_err(e.to_string()))?;
-    }
+    let input_path = Path::new(&file_path);
+    let output_path = Path::new(&out_dir);
 
-    let file = File::open(&file_path).map_err(|e| PyIOError::new_err(e.to_string()))?;
-    let decoder = zstd::stream::read::Decoder::new(file).unwrap();
-    let mut archive = tar::Archive::new(decoder);
-
-    for entry in archive
-        .entries()
-        .map_err(|e| PyIOError::new_err(e.to_string()))?
-    {
-        let mut entry = entry.map_err(|e| PyIOError::new_err(e.to_string()))?;
-        let path = entry.path().unwrap().into_owned();
-        if path.to_string_lossy() == ".vegh.json" {
-            continue;
-        }
-
-        if let Some(ref incs) = include {
-            let mut matched = false;
-            for pattern in incs {
-                if path.starts_with(Path::new(pattern)) {
-                    matched = true;
-                    break;
-                }
-            }
-            if !matched {
-                continue;
-            }
-        }
-
-        if flatten {
-            if let Some(file_name) = path.file_name() {
-                let target = out.join(file_name);
-                entry
-                    .unpack(target)
-                    .map_err(|e| PyIOError::new_err(e.to_string()))?;
-            }
-        } else {
-            entry
-                .unpack_in(out)
-                .map_err(|e| PyIOError::new_err(e.to_string()))?;
-        }
-    }
-    Ok(())
+    restore_snap_logic(input_path, output_path, include, flatten)
+        .map_err(|e| PyIOError::new_err(e.to_string()))
 }
+
+// --- Utility Functions ---
 
 #[pyfunction]
 fn list_files(file_path: String) -> PyResult<Vec<String>> {
@@ -416,34 +151,31 @@ fn list_files(file_path: String) -> PyResult<Vec<String>> {
     let mut archive = tar::Archive::new(decoder);
 
     let mut files = Vec::new();
+
+    // We can't use load_snapshot_data here efficiently because we just want names.
+    // So we iterate. If we find manifest at the end, we use it.
     if let Ok(entries) = archive.entries() {
         for entry in entries {
-            if let Ok(e) = entry {
-                if let Ok(p) = e.path() {
-                    files.push(p.to_string_lossy().to_string());
+            if let Ok(mut e) = entry {
+                let path = e.path().unwrap().into_owned();
+                let path_str = path.to_string_lossy().to_string();
+
+                if path_str == "manifest.json" {
+                    let mut content = String::new();
+                    if e.read_to_string(&mut content).is_ok() {
+                        if let Ok(manifest) = serde_json::from_str::<SnapshotManifest>(&content) {
+                            files = manifest.entries.into_iter().map(|entry| entry.path).collect();
+                        }
+                    }
+                } else if !path_str.starts_with("blobs/") && path_str != ".vegh.json" {
+                    files.push(path_str);
                 }
             }
         }
     }
+    // If manifest was found (V3), 'files' was overwritten with manifest entries.
+    // If not (V2), 'files' contains the tar entries.
     Ok(files)
-}
-
-#[pyfunction]
-fn check_integrity(file_path: String) -> PyResult<String> {
-    let file = File::open(&file_path).map_err(|e| PyIOError::new_err(e.to_string()))?;
-
-    let hash = if let Ok(mmap) = unsafe { MmapOptions::new().map(&file) } {
-        let mut hasher = Hasher::new();
-        hasher.update_rayon(&mmap);
-        hasher.finalize().to_hex().to_string()
-    } else {
-        let mut f = File::open(&file_path).map_err(|e| PyIOError::new_err(e.to_string()))?;
-        let mut hasher = Hasher::new();
-        std::io::copy(&mut f, &mut hasher).map_err(|e| PyIOError::new_err(e.to_string()))?;
-        hasher.finalize().to_hex().to_string()
-    };
-
-    Ok(hash)
 }
 
 #[pyfunction]
@@ -470,51 +202,59 @@ fn get_metadata(file_path: String) -> PyResult<String> {
 }
 
 #[pyfunction]
-fn count_locs(file_path: String) -> PyResult<Vec<(String, usize)>> {
+fn check_integrity(file_path: String) -> PyResult<String> {
     let file = File::open(&file_path).map_err(|e| PyIOError::new_err(e.to_string()))?;
-    let decoder = zstd::stream::read::Decoder::new(file).unwrap();
-    let mut archive = tar::Archive::new(decoder);
+    let mut hasher = blake3::Hasher::new();
 
-    let mut results = Vec::new();
-
-    if let Ok(entries) = archive.entries() {
-        for entry in entries {
-            if let Ok(mut e) = entry {
-                let path = e.path().unwrap().into_owned();
-                let path_str = path.to_string_lossy().to_string();
-
-                if path_str == ".vegh.json" {
-                    continue;
-                }
-                let mut content = String::new();
-                match e.read_to_string(&mut content) {
-                    Ok(_) => {
-                        if content.contains('\0') {
-                            results.push((path_str, 0));
-                        } else {
-                            results.push((path_str, content.lines().count()));
-                        }
-                    }
-                    Err(_) => {
-                        results.push((path_str, 0));
-                    }
-                }
-            }
-        }
+    if let Ok(mmap) = unsafe { memmap2::MmapOptions::new().map(&file) } {
+        hasher.update_rayon(&mmap);
+    } else {
+        let mut f = File::open(&file_path).map_err(|e| PyIOError::new_err(e.to_string()))?;
+        std::io::copy(&mut f, &mut hasher).map_err(|e| PyIOError::new_err(e.to_string()))?;
     }
-    Ok(results)
+
+    Ok(hasher.finalize().to_hex().to_string())
 }
 
 #[pyfunction]
-#[pyo3(signature = (source, exclude=None))]
-fn scan_locs_dir(source: String, exclude: Option<Vec<String>>) -> PyResult<Vec<(String, usize)>> {
+fn count_locs(file_path: String) -> PyResult<Vec<(String, usize)>> {
+    let path = Path::new(&file_path);
+    
+    // Load all files (no filter)
+    let files = load_snapshot_data(path, |_| true)
+        .map_err(|e| PyIOError::new_err(format!("Failed to read snapshot: {}", e)))?;
+
+    let mut results = Vec::new();
+    for (name, content) in files {
+        if let Ok(text) = String::from_utf8(content) {
+            results.push((name, text.lines().count()));
+        } else {
+            results.push((name, 0));
+        }
+    }
+
+    Ok(results)
+}
+
+// --- Directory Scanners & Hybrid Logic ---
+
+#[pyfunction]
+#[pyo3(signature = (source, include=None, exclude=None))]
+fn dry_run_snap(
+    source: String,
+    include: Option<Vec<String>>,
+    exclude: Option<Vec<String>>,
+) -> PyResult<Vec<(String, u64)>> {
     let source_path = Path::new(&source);
     let mut results = Vec::new();
 
-    // --- FIX: Override Logic ---
     let mut override_builder = OverrideBuilder::new(source_path);
+    if let Some(incs) = include {
+        for pattern in incs {
+            let _ = override_builder.add(&pattern);
+        }
+    }
     if let Some(excs) = exclude {
-        // Exclude MUST start with '!' to be an ignore pattern
         for pattern in excs {
             let _ = override_builder.add(&format!("!{}", pattern));
         }
@@ -530,6 +270,7 @@ fn scan_locs_dir(source: String, exclude: Option<Vec<String>>) -> PyResult<Vec<(
         builder.add_custom_ignore_filename(f);
     }
     builder.hidden(true).git_ignore(true).overrides(overrides);
+    builder.filter_entry(|entry| !entry.path().to_string_lossy().contains(CACHE_DIR));
 
     for res in builder.build() {
         if let Ok(entry) = res {
@@ -537,86 +278,14 @@ fn scan_locs_dir(source: String, exclude: Option<Vec<String>>) -> PyResult<Vec<(
             if path.is_file() {
                 let name = path.strip_prefix(source_path).unwrap_or(path);
                 let name_str = name.to_string_lossy().to_string();
-                if PRESERVED_FILES.contains(&name_str.as_str()) {
-                    continue;
-                }
-
-                let count = if let Ok(mut file) = File::open(path) {
-                    // Check binary (Header check)
-                    let mut buffer = [0; 1024];
-                    let chunk_size = file.read(&mut buffer).unwrap_or(0);
-
-                    if buffer[..chunk_size].contains(&0) {
-                        0
-                    } else {
-                        // Rewind to start
-                        if file.seek(SeekFrom::Start(0)).is_ok() {
-                            let reader = BufReader::new(file);
-                            reader.lines().count()
-                        } else {
-                            0
-                        }
-                    }
-                } else {
-                    0
-                };
-
-                results.push((name_str, count));
+                let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                results.push((name_str, size));
             }
         }
     }
+
     Ok(results)
 }
-
-#[pyfunction]
-fn cat_file(file_path: String, target_file: String) -> PyResult<Vec<u8>> {
-    let file = File::open(&file_path).map_err(|e| PyIOError::new_err(e.to_string()))?;
-    let decoder = zstd::stream::read::Decoder::new(file).unwrap();
-    let mut archive = tar::Archive::new(decoder);
-
-    for entry in archive
-        .entries()
-        .map_err(|e| PyIOError::new_err(e.to_string()))?
-    {
-        let mut entry = entry.map_err(|e| PyIOError::new_err(e.to_string()))?;
-        let path = entry.path().unwrap().into_owned();
-        let path_str = path.to_string_lossy().to_string();
-
-        if path_str == target_file {
-            let mut content = Vec::new();
-            entry
-                .read_to_end(&mut content)
-                .map_err(|e| PyIOError::new_err(e.to_string()))?;
-            return Ok(content);
-        }
-    }
-    Err(PyValueError::new_err(format!(
-        "File '{}' not found in snapshot",
-        target_file
-    )))
-}
-
-#[pyfunction]
-fn list_files_details(file_path: String) -> PyResult<Vec<(String, u64)>> {
-    let file = File::open(&file_path).map_err(|e| PyIOError::new_err(e.to_string()))?;
-    let decoder = zstd::stream::read::Decoder::new(file).unwrap();
-    let mut archive = tar::Archive::new(decoder);
-
-    let mut results = Vec::new();
-    if let Ok(entries) = archive.entries() {
-        for entry in entries {
-            if let Ok(e) = entry {
-                let size = e.size();
-                if let Ok(p) = e.path() {
-                    results.push((p.to_string_lossy().to_string(), size));
-                }
-            }
-        }
-    }
-    Ok(results)
-}
-
-// --- NEW FUNCTION: VEGH PROMPT CONTEXT ---
 
 #[pyfunction]
 #[pyo3(signature = (source, include=None, exclude=None))]
@@ -626,68 +295,82 @@ fn get_context_xml(
     exclude: Option<Vec<String>>,
 ) -> PyResult<String> {
     let source_path = Path::new(&source);
-
-    // Initialize XML output with root tag
     let mut xml_output = String::from("<codebase>\n");
 
-    // --- FIX: Override Logic ---
-    let mut override_builder = OverrideBuilder::new(source_path);
-    if let Some(incs) = include {
-        for pattern in incs {
-            let _ = override_builder.add(&pattern);
+    // Case 1: Source is a Snapshot File
+    if source_path.is_file() {
+        let files = load_snapshot_data(source_path, |path| {
+            if let Some(incs) = &include {
+                let mut matched = false;
+                for inc in incs { if path.contains(inc) { matched = true; break; } }
+                if !matched { return false; }
+            }
+            if let Some(excs) = &exclude {
+                for exc in excs { if path.contains(exc) { return false; } }
+            }
+            true
+        }).map_err(|e| PyIOError::new_err(format!("Failed to read snapshot: {}", e)))?;
+
+        for (name, content) in files {
+             if content.contains(&0) { continue; }
+             
+             let content_str = String::from_utf8_lossy(&content);
+             xml_output.push_str(&format!(
+                "  <file path=\"{}\">\n    <![CDATA[\n{}\n    ]]>\n  </file>\n",
+                name, content_str
+            ));
         }
-    }
-    if let Some(excs) = exclude {
-        // Exclude must be negated (!) to act as an ignore pattern
-        for pattern in excs {
-            let _ = override_builder.add(&format!("!{}", pattern));
+
+    // Case 2: Source is a Directory
+    } else {
+        let mut override_builder = OverrideBuilder::new(source_path);
+        if let Some(incs) = include {
+            for pattern in incs {
+                let _ = override_builder.add(&pattern);
+            }
         }
-    }
-    let _ = override_builder.add(&format!("!{}", CACHE_DIR));
+        if let Some(excs) = exclude {
+            for pattern in excs {
+                let _ = override_builder.add(&format!("!{}", pattern));
+            }
+        }
+        let _ = override_builder.add(&format!("!{}", CACHE_DIR));
+        let overrides = override_builder
+            .build()
+            .map_err(|e| PyIOError::new_err(e.to_string()))?;
 
-    let overrides = override_builder
-        .build()
-        .map_err(|e| PyIOError::new_err(format!("Override build fail: {}", e)))?;
+        let mut builder = WalkBuilder::new(source_path);
+        for &f in PRESERVED_FILES {
+            builder.add_custom_ignore_filename(f);
+        }
+        builder.hidden(true).git_ignore(true).overrides(overrides);
+        builder.filter_entry(|entry| !entry.path().to_string_lossy().contains(CACHE_DIR));
 
-    // Setup WalkBuilder
-    let mut builder = WalkBuilder::new(source_path);
-    for &f in PRESERVED_FILES {
-        builder.add_custom_ignore_filename(f);
-    }
+        for res in builder.build() {
+            if let Ok(entry) = res {
+                let path = entry.path();
+                if path.is_file() {
+                    let name = path.strip_prefix(source_path).unwrap_or(path);
+                    let name_str = name.to_string_lossy().to_string();
 
-    // Crucial: Use hidden(true) and git_ignore(true) to respect .gitignore
-    builder.hidden(true).git_ignore(true).overrides(overrides);
-
-    for res in builder.build() {
-        if let Ok(entry) = res {
-            let path = entry.path();
-            if path.is_file() {
-                // Get relative path
-                let name = path.strip_prefix(source_path).unwrap_or(path);
-                let name_str = name.to_string_lossy().to_string();
-
-                // Skip internal config files unless explicitly asked
-                if PRESERVED_FILES.contains(&name_str.as_str()) {
-                    continue;
-                }
-
-                // Check for binary content (Read first 1KB)
-                if let Ok(mut file) = File::open(path) {
-                    let mut buffer = [0; 1024];
-                    let chunk_size = file.read(&mut buffer).unwrap_or(0);
-
-                    // If contains null byte, assume binary and skip
-                    if buffer[..chunk_size].contains(&0) {
+                    if PRESERVED_FILES.contains(&name_str.as_str()) {
                         continue;
                     }
-                }
 
-                // Read full content as text
-                if let Ok(content) = fs::read_to_string(path) {
-                    xml_output.push_str(&format!(
-                        "  <file path=\"{}\">\n    <![CDATA[\n{}\n    ]]>\n  </file>\n",
-                        name_str, content
-                    ));
+                    if let Ok(mut file) = File::open(path) {
+                        let mut buffer = [0; 1024];
+                        let chunk_size = file.read(&mut buffer).unwrap_or(0);
+                        if buffer[..chunk_size].contains(&0) {
+                            continue;
+                        }
+                    }
+
+                    if let Ok(content) = std::fs::read_to_string(path) {
+                        xml_output.push_str(&format!(
+                            "  <file path=\"{}\">\n    <![CDATA[\n{}\n    ]]>\n  </file>\n",
+                            name_str, content
+                        ));
+                    }
                 }
             }
         }
@@ -695,6 +378,141 @@ fn get_context_xml(
 
     xml_output.push_str("</codebase>");
     Ok(xml_output)
+}
+
+#[pyfunction]
+#[pyo3(signature = (file_path, query, prefix=None, case_sensitive=true))]
+fn search_snap(
+    file_path: String,
+    query: String,
+    prefix: Option<String>,
+    case_sensitive: bool,
+) -> PyResult<Vec<(String, usize, String)>> {
+    let path = Path::new(&file_path);
+    let prefix_str = prefix.unwrap_or_default();
+    
+    let files = load_snapshot_data(path, |p| p.starts_with(&prefix_str))
+        .map_err(|e| PyIOError::new_err(format!("Failed to read snapshot: {}", e)))?;
+
+    let mut results = Vec::new();
+    let query_lower = if !case_sensitive { query.to_lowercase() } else { String::new() };
+
+    for (name, content) in files {
+         if content.contains(&0) { continue; }
+         
+         let text = String::from_utf8_lossy(&content);
+         for (i, line) in text.lines().enumerate() {
+            let is_match = if case_sensitive {
+                line.contains(&query)
+            } else {
+                line.to_lowercase().contains(&query_lower)
+            };
+
+            if is_match {
+                let display_line = if line.len() > 100 {
+                    format!("{}...", &line[..100])
+                } else {
+                    line.to_string()
+                };
+                results.push((name.clone(), i + 1, display_line));
+            }
+         }
+    }
+    Ok(results)
+}
+
+#[pyfunction]
+fn cat_file(file_path: String, target_file: String) -> PyResult<Vec<u8>> {
+    let path = Path::new(&file_path);
+    
+    let files = load_snapshot_data(path, |p| p == target_file)
+        .map_err(|e| PyIOError::new_err(format!("Failed to read snapshot: {}", e)))?;
+
+    if let Some((_, content)) = files.into_iter().next() {
+        Ok(content)
+    } else {
+        Err(PyValueError::new_err(format!("File '{}' not found in snapshot", target_file)))
+    }
+}
+
+#[pyfunction]
+fn scan_locs_dir(source: String, exclude: Option<Vec<String>>) -> PyResult<Vec<(String, usize)>> {
+    let source_path = Path::new(&source);
+    let mut results = Vec::new();
+
+    let mut override_builder = OverrideBuilder::new(source_path);
+    if let Some(excs) = exclude {
+        for pattern in excs {
+            let _ = override_builder.add(&format!("!{}", pattern));
+        }
+    }
+    let _ = override_builder.add(&format!("!{}", CACHE_DIR));
+    let overrides = override_builder.build().map_err(|e| PyIOError::new_err(e.to_string()))?;
+
+    let mut builder = WalkBuilder::new(source_path);
+    for &f in PRESERVED_FILES {
+        builder.add_custom_ignore_filename(f);
+    }
+    builder.hidden(true).git_ignore(true).overrides(overrides);
+    builder.filter_entry(|entry| !entry.path().to_string_lossy().contains(CACHE_DIR));
+
+    for res in builder.build() {
+        if let Ok(entry) = res {
+            let path = entry.path();
+            if path.is_file() {
+                let name = path.strip_prefix(source_path).unwrap_or(path);
+                let name_str = name.to_string_lossy().to_string();
+                if PRESERVED_FILES.contains(&name_str.as_str()) { continue; }
+
+                let count = if let Ok(mut file) = File::open(path) {
+                    let mut buffer = [0; 1024];
+                    let chunk_size = file.read(&mut buffer).unwrap_or(0);
+                    if buffer[..chunk_size].contains(&0) {
+                        0
+                    } else {
+                        if file.seek(SeekFrom::Start(0)).is_ok() {
+                            let reader = std::io::BufReader::new(file);
+                            reader.lines().count()
+                        } else { 0 }
+                    }
+                } else { 0 };
+                results.push((name_str, count));
+            }
+        }
+    }
+    Ok(results)
+}
+
+#[pyfunction]
+fn list_files_details(file_path: String) -> PyResult<Vec<(String, u64)>> {
+    let file = File::open(&file_path).map_err(|e| PyIOError::new_err(e.to_string()))?;
+    let decoder = zstd::stream::read::Decoder::new(file).unwrap();
+    let mut archive = tar::Archive::new(decoder);
+    let mut results = Vec::new();
+
+    if let Ok(entries) = archive.entries() {
+        for entry in entries {
+            if let Ok(mut e) = entry {
+                let size = e.size();
+                let path = e.path().unwrap().into_owned();
+                let path_str = path.to_string_lossy().to_string();
+                
+                if path_str == "manifest.json" {
+                     let mut content = String::new();
+                     if e.read_to_string(&mut content).is_ok() {
+                         if let Ok(manifest) = serde_json::from_str::<SnapshotManifest>(&content) {
+                             return Ok(manifest.entries.into_iter().map(|en| (en.path, en.size)).collect());
+                         }
+                     }
+                }
+                
+                if !path_str.starts_with("blobs/") && path_str != ".vegh.json" && path_str != "manifest.json" {
+                     results.push((path_str, size));
+                }
+            }
+        }
+    }
+    Ok(results)
 }
 
 #[pymodule]
@@ -706,11 +524,11 @@ fn pyvegh_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(list_files, m)?)?;
     m.add_function(wrap_pyfunction!(check_integrity, m)?)?;
     m.add_function(wrap_pyfunction!(get_metadata, m)?)?;
-    m.add_function(wrap_pyfunction!(count_locs, m)?)?;
     m.add_function(wrap_pyfunction!(scan_locs_dir, m)?)?;
     m.add_function(wrap_pyfunction!(cat_file, m)?)?;
     m.add_function(wrap_pyfunction!(list_files_details, m)?)?;
     m.add_function(wrap_pyfunction!(get_context_xml, m)?)?;
     m.add_function(wrap_pyfunction!(search_snap, m)?)?;
+    m.add_function(wrap_pyfunction!(count_locs, m)?)?; 
     Ok(())
 }

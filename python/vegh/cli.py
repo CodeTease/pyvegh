@@ -629,6 +629,7 @@ def snap(
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Simulate only"),
     skip_hooks: bool = typer.Option(False, "--skip-hooks", help="Bypass hooks"),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Use minimal output (hides progress bar)"),
 ):
     """Create a snapshot (.vegh) from local folder OR remote repo."""
 
@@ -682,14 +683,36 @@ def snap(
     )
     start = time.time()
 
-    with console.status("[bold cyan]Compressing...[/bold cyan]", spinner="dots"):
-        try:
+    # LOGIC UPDATE: Switch between Rust UI (default) and Python Spinner (quiet)
+    try:
+        if not quiet:
+            # Default: Let Rust handle the UI with indicatif (No Python spinner to interfere)
             count = create_snap(
-                str(source_path), str(output_path), level, comment, include, exclude
+                str(source_path),
+                str(output_path),
+                level,
+                comment,
+                include,
+                exclude,
+                no_cache=offline,
+                verbose=True, # Enable Rust Progress Bar
             )
-        except Exception as e:
-            console.print(f"[red]Error:[/red] {e}")
-            raise typer.Exit(1)
+        else:
+            # Quiet Mode: Use Python spinner for minimal feedback, suppress Rust UI
+            with console.status("[bold cyan]Compressing (Quiet)...[/bold cyan]", spinner="dots"):
+                count = create_snap(
+                    str(source_path),
+                    str(output_path),
+                    level,
+                    comment,
+                    include,
+                    exclude,
+                    no_cache=offline,
+                    verbose=False, # Silence Rust
+                )
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
 
     dur = time.time() - start
     size = output_path.stat().st_size
@@ -711,7 +734,6 @@ def snap(
     if not skip_hooks:
         if not execute_hooks(hooks.get("post"), "post"):
             console.print("[yellow][WARN] Post-snap hooks error.[/yellow]")
-
 
 @app.command()
 def restore(
@@ -1369,10 +1391,23 @@ def loc(
                     cnt = calculate_sloc(str(scan_path))
                     results = [(scan_path.name, cnt)]
             else:
-                if scan_path.is_dir():
+                if scan_path.is_file():
+                    # FIX: Handle single file logic separately
+                    # Rust's count_locs expects a .vegh snapshot
+                    if scan_path.suffix == ".vegh":
+                         results = count_locs(str(scan_path))
+                    else:
+                        # Plain text file counting in Python
+                        try:
+                            with open(scan_path, "r", encoding="utf-8", errors="ignore") as f:
+                                cnt = sum(1 for _ in f)
+                            results = [(scan_path.name, cnt)]
+                        except Exception:
+                            results = [(scan_path.name, 0)]
+                elif scan_path.is_dir():
                     results = scan_locs_dir(str(scan_path))
                 else:
-                    results = count_locs(str(scan_path))
+                    results = [] # Should not happen
 
         if render_dashboard and not raw:
             render_dashboard(console, display_name, results, metric_name=metric_name)

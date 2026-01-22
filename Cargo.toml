@@ -1,6 +1,6 @@
 [package]
 name = "pyvegh"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 authors = ["CodeTease"]
 
@@ -9,19 +9,28 @@ name = "pyvegh_core"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.27.1", features = ["extension-module", "abi3-py38"] }
+pyo3 = { version = "0.27", features = ["extension-module", "abi3-py310"] }
 
-# Core Logic Deps
+# Core Logic Deps (Synced from Vegh 0.4.0)
 tar = "0.4"
 zstd = { version = "0.13", features = ["zstdmt"] } 
 ignore = "0.4"
 
-# Hashing & Integrity (FV 2 uses Blake3)
-blake3 = { version = "1.5", features = ["rayon", "mmap"] }
+# Hashing & CDC
+blake3 = { version = "1.8", features = ["rayon", "mmap"] }
 hex = "0.4"
 memmap2 = "0.9"
+fastcdc = "3.2.1" # Added for CDC support
 
+# Storage & Cache
+redb = "3.1.0" # Migrated from JSON cache to Embedded DB
+bincode = "1.3" # Struct serialization
+dashmap = "6.1.0" # Concurrent Map for Deduplication
+
+# Utilities
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-chrono = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+crossbeam-channel = "0.5" # Pipeline messaging
+indicatif = "0.18"
