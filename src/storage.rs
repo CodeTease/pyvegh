@@ -1,7 +1,5 @@
 use anyhow::{Context, Result};
-use redb::{
-    Database, ReadableTable, TableDefinition, WriteTransaction, ReadableDatabase
-};
+use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition, WriteTransaction};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::Cursor;
@@ -83,11 +81,11 @@ impl FileCacheEntry {
     pub fn get_chunks(&self) -> Result<Option<Vec<StoredChunk>>> {
         if let Some(compressed) = &self.chunks_compressed {
             let decompressed = zstd::stream::decode_all(Cursor::new(compressed))?;
-            
+
             if let Ok(chunks) = bincode::deserialize::<Vec<StoredChunk>>(&decompressed) {
                 return Ok(Some(chunks));
             }
-            
+
             // Legacy handling or corruption -> return None to force recompute
             if decompressed.len() % 32 == 0 {
                 return Ok(None);
@@ -179,8 +177,8 @@ impl CacheDB {
     }
 
     fn migrate_legacy_json(&mut self, path: &Path) -> Result<()> {
-        if let Ok(file) = File::open(path) {
-            if let Ok(cache) = serde_json::from_reader::<_, LegacyVeghCache>(file) {
+        if let Ok(file) = File::open(path)
+            && let Ok(cache) = serde_json::from_reader::<_, LegacyVeghCache>(file) {
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap()
@@ -216,7 +214,6 @@ impl CacheDB {
                     }
                 }
             }
-        }
         // Remove legacy file after migration
         let _ = fs::remove_file(path);
         Ok(())
@@ -257,11 +254,10 @@ impl CacheDB {
                 // Iterating over the table needs careful handling of Result
                 for res in table.iter()? {
                     let (k, v) = res?;
-                    if let Ok(entry) = bincode::deserialize::<FileCacheEntry>(v.value()) {
-                        if now.saturating_sub(entry.last_seen) >= retention_seconds {
+                    if let Ok(entry) = bincode::deserialize::<FileCacheEntry>(v.value())
+                        && now.saturating_sub(entry.last_seen) >= retention_seconds {
                             keys_to_remove.push((k.value().to_string(), entry.inode));
                         }
-                    }
                 }
             }
         }

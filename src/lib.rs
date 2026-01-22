@@ -11,16 +11,11 @@ pub mod hash;
 pub mod storage;
 
 use crate::core::{create_snap_logic, restore_snap_logic};
-use crate::storage::{SnapshotManifest, CACHE_DIR};
-use ignore::{overrides::OverrideBuilder, WalkBuilder};
+use crate::storage::{CACHE_DIR, SnapshotManifest};
+use ignore::{WalkBuilder, overrides::OverrideBuilder};
 
 // Constants synced with core/storage
-const PRESERVED_FILES: &[&str] = &[
-    ".veghignore",
-    ".gitignore",
-    ".npmignore",
-    ".dockerignore",
-];
+const PRESERVED_FILES: &[&str] = &[".veghignore", ".gitignore", ".npmignore", ".dockerignore"];
 
 // --- Helper Functions (Internal) ---
 
@@ -155,21 +150,22 @@ fn list_files(file_path: String) -> PyResult<Vec<String>> {
     // We can't use load_snapshot_data here efficiently because we just want names.
     // So we iterate. If we find manifest at the end, we use it.
     if let Ok(entries) = archive.entries() {
-        for entry in entries {
-            if let Ok(mut e) = entry {
-                let path = e.path().unwrap().into_owned();
-                let path_str = path.to_string_lossy().to_string();
+        for mut e in entries.flatten() {
+            let path = e.path().unwrap().into_owned();
+            let path_str = path.to_string_lossy().to_string();
 
-                if path_str == "manifest.json" {
-                    let mut content = String::new();
-                    if e.read_to_string(&mut content).is_ok() {
-                        if let Ok(manifest) = serde_json::from_str::<SnapshotManifest>(&content) {
-                            files = manifest.entries.into_iter().map(|entry| entry.path).collect();
-                        }
+            if path_str == "manifest.json" {
+                let mut content = String::new();
+                if e.read_to_string(&mut content).is_ok()
+                    && let Ok(manifest) = serde_json::from_str::<SnapshotManifest>(&content) {
+                        files = manifest
+                            .entries
+                            .into_iter()
+                            .map(|entry| entry.path)
+                            .collect();
                     }
-                } else if !path_str.starts_with("blobs/") && path_str != ".vegh.json" {
-                    files.push(path_str);
-                }
+            } else if !path_str.starts_with("blobs/") && path_str != ".vegh.json" {
+                files.push(path_str);
             }
         }
     }
@@ -186,16 +182,14 @@ fn get_metadata(file_path: String) -> PyResult<String> {
 
     if let Ok(entries) = archive.entries() {
         for entry in entries {
-            if let Ok(mut e) = entry {
-                if let Ok(p) = e.path() {
-                    if p.to_string_lossy() == ".vegh.json" {
+            if let Ok(mut e) = entry
+                && let Ok(p) = e.path()
+                    && p.to_string_lossy() == ".vegh.json" {
                         let mut content = String::new();
                         e.read_to_string(&mut content)
                             .map_err(|e| PyIOError::new_err(e.to_string()))?;
                         return Ok(content);
                     }
-                }
-            }
         }
     }
     Err(PyValueError::new_err("Metadata not found in snapshot"))
@@ -219,7 +213,7 @@ fn check_integrity(file_path: String) -> PyResult<String> {
 #[pyfunction]
 fn count_locs(file_path: String) -> PyResult<Vec<(String, usize)>> {
     let path = Path::new(&file_path);
-    
+
     // Load all files (no filter)
     let files = load_snapshot_data(path, |_| true)
         .map_err(|e| PyIOError::new_err(format!("Failed to read snapshot: {}", e)))?;
@@ -272,15 +266,13 @@ fn dry_run_snap(
     builder.hidden(true).git_ignore(true).overrides(overrides);
     builder.filter_entry(|entry| !entry.path().to_string_lossy().contains(CACHE_DIR));
 
-    for res in builder.build() {
-        if let Ok(entry) = res {
-            let path = entry.path();
-            if path.is_file() {
-                let name = path.strip_prefix(source_path).unwrap_or(path);
-                let name_str = name.to_string_lossy().to_string();
-                let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
-                results.push((name_str, size));
-            }
+    for entry in builder.build().flatten() {
+        let path = entry.path();
+        if path.is_file() {
+            let name = path.strip_prefix(source_path).unwrap_or(path);
+            let name_str = name.to_string_lossy().to_string();
+            let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+            results.push((name_str, size));
         }
     }
 
@@ -302,20 +294,34 @@ fn get_context_xml(
         let files = load_snapshot_data(source_path, |path| {
             if let Some(incs) = &include {
                 let mut matched = false;
-                for inc in incs { if path.contains(inc) { matched = true; break; } }
-                if !matched { return false; }
+                for inc in incs {
+                    if path.contains(inc) {
+                        matched = true;
+                        break;
+                    }
+                }
+                if !matched {
+                    return false;
+                }
             }
             if let Some(excs) = &exclude {
-                for exc in excs { if path.contains(exc) { return false; } }
+                for exc in excs {
+                    if path.contains(exc) {
+                        return false;
+                    }
+                }
             }
             true
-        }).map_err(|e| PyIOError::new_err(format!("Failed to read snapshot: {}", e)))?;
+        })
+        .map_err(|e| PyIOError::new_err(format!("Failed to read snapshot: {}", e)))?;
 
         for (name, content) in files {
-             if content.contains(&0) { continue; }
-             
-             let content_str = String::from_utf8_lossy(&content);
-             xml_output.push_str(&format!(
+            if content.contains(&0) {
+                continue;
+            }
+
+            let content_str = String::from_utf8_lossy(&content);
+            xml_output.push_str(&format!(
                 "  <file path=\"{}\">\n    <![CDATA[\n{}\n    ]]>\n  </file>\n",
                 name, content_str
             ));
@@ -346,31 +352,29 @@ fn get_context_xml(
         builder.hidden(true).git_ignore(true).overrides(overrides);
         builder.filter_entry(|entry| !entry.path().to_string_lossy().contains(CACHE_DIR));
 
-        for res in builder.build() {
-            if let Ok(entry) = res {
-                let path = entry.path();
-                if path.is_file() {
-                    let name = path.strip_prefix(source_path).unwrap_or(path);
-                    let name_str = name.to_string_lossy().to_string();
+        for entry in builder.build().flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                let name = path.strip_prefix(source_path).unwrap_or(path);
+                let name_str = name.to_string_lossy().to_string();
 
-                    if PRESERVED_FILES.contains(&name_str.as_str()) {
+                if PRESERVED_FILES.contains(&name_str.as_str()) {
+                    continue;
+                }
+
+                if let Ok(mut file) = File::open(path) {
+                    let mut buffer = [0; 1024];
+                    let chunk_size = file.read(&mut buffer).unwrap_or(0);
+                    if buffer[..chunk_size].contains(&0) {
                         continue;
                     }
+                }
 
-                    if let Ok(mut file) = File::open(path) {
-                        let mut buffer = [0; 1024];
-                        let chunk_size = file.read(&mut buffer).unwrap_or(0);
-                        if buffer[..chunk_size].contains(&0) {
-                            continue;
-                        }
-                    }
-
-                    if let Ok(content) = std::fs::read_to_string(path) {
-                        xml_output.push_str(&format!(
-                            "  <file path=\"{}\">\n    <![CDATA[\n{}\n    ]]>\n  </file>\n",
-                            name_str, content
-                        ));
-                    }
+                if let Ok(content) = std::fs::read_to_string(path) {
+                    xml_output.push_str(&format!(
+                        "  <file path=\"{}\">\n    <![CDATA[\n{}\n    ]]>\n  </file>\n",
+                        name_str, content
+                    ));
                 }
             }
         }
@@ -390,18 +394,24 @@ fn search_snap(
 ) -> PyResult<Vec<(String, usize, String)>> {
     let path = Path::new(&file_path);
     let prefix_str = prefix.unwrap_or_default();
-    
+
     let files = load_snapshot_data(path, |p| p.starts_with(&prefix_str))
         .map_err(|e| PyIOError::new_err(format!("Failed to read snapshot: {}", e)))?;
 
     let mut results = Vec::new();
-    let query_lower = if !case_sensitive { query.to_lowercase() } else { String::new() };
+    let query_lower = if !case_sensitive {
+        query.to_lowercase()
+    } else {
+        String::new()
+    };
 
     for (name, content) in files {
-         if content.contains(&0) { continue; }
-         
-         let text = String::from_utf8_lossy(&content);
-         for (i, line) in text.lines().enumerate() {
+        if content.contains(&0) {
+            continue;
+        }
+
+        let text = String::from_utf8_lossy(&content);
+        for (i, line) in text.lines().enumerate() {
             let is_match = if case_sensitive {
                 line.contains(&query)
             } else {
@@ -416,7 +426,7 @@ fn search_snap(
                 };
                 results.push((name.clone(), i + 1, display_line));
             }
-         }
+        }
     }
     Ok(results)
 }
@@ -424,14 +434,17 @@ fn search_snap(
 #[pyfunction]
 fn cat_file(file_path: String, target_file: String) -> PyResult<Vec<u8>> {
     let path = Path::new(&file_path);
-    
+
     let files = load_snapshot_data(path, |p| p == target_file)
         .map_err(|e| PyIOError::new_err(format!("Failed to read snapshot: {}", e)))?;
 
     if let Some((_, content)) = files.into_iter().next() {
         Ok(content)
     } else {
-        Err(PyValueError::new_err(format!("File '{}' not found in snapshot", target_file)))
+        Err(PyValueError::new_err(format!(
+            "File '{}' not found in snapshot",
+            target_file
+        )))
     }
 }
 
@@ -447,7 +460,9 @@ fn scan_locs_dir(source: String, exclude: Option<Vec<String>>) -> PyResult<Vec<(
         }
     }
     let _ = override_builder.add(&format!("!{}", CACHE_DIR));
-    let overrides = override_builder.build().map_err(|e| PyIOError::new_err(e.to_string()))?;
+    let overrides = override_builder
+        .build()
+        .map_err(|e| PyIOError::new_err(e.to_string()))?;
 
     let mut builder = WalkBuilder::new(source_path);
     for &f in PRESERVED_FILES {
@@ -456,28 +471,30 @@ fn scan_locs_dir(source: String, exclude: Option<Vec<String>>) -> PyResult<Vec<(
     builder.hidden(true).git_ignore(true).overrides(overrides);
     builder.filter_entry(|entry| !entry.path().to_string_lossy().contains(CACHE_DIR));
 
-    for res in builder.build() {
-        if let Ok(entry) = res {
-            let path = entry.path();
-            if path.is_file() {
-                let name = path.strip_prefix(source_path).unwrap_or(path);
-                let name_str = name.to_string_lossy().to_string();
-                if PRESERVED_FILES.contains(&name_str.as_str()) { continue; }
-
-                let count = if let Ok(mut file) = File::open(path) {
-                    let mut buffer = [0; 1024];
-                    let chunk_size = file.read(&mut buffer).unwrap_or(0);
-                    if buffer[..chunk_size].contains(&0) {
-                        0
-                    } else {
-                        if file.seek(SeekFrom::Start(0)).is_ok() {
-                            let reader = std::io::BufReader::new(file);
-                            reader.lines().count()
-                        } else { 0 }
-                    }
-                } else { 0 };
-                results.push((name_str, count));
+    for entry in builder.build().flatten() {
+        let path = entry.path();
+        if path.is_file() {
+            let name = path.strip_prefix(source_path).unwrap_or(path);
+            let name_str = name.to_string_lossy().to_string();
+            if PRESERVED_FILES.contains(&name_str.as_str()) {
+                continue;
             }
+
+            let count = if let Ok(mut file) = File::open(path) {
+                let mut buffer = [0; 1024];
+                let chunk_size = file.read(&mut buffer).unwrap_or(0);
+                if buffer[..chunk_size].contains(&0) {
+                    0
+                } else if file.seek(SeekFrom::Start(0)).is_ok() {
+                    let reader = std::io::BufReader::new(file);
+                    reader.lines().count()
+                } else {
+                    0
+                }
+            } else {
+                0
+            };
+            results.push((name_str, count));
         }
     }
     Ok(results)
@@ -491,24 +508,28 @@ fn list_files_details(file_path: String) -> PyResult<Vec<(String, u64)>> {
     let mut results = Vec::new();
 
     if let Ok(entries) = archive.entries() {
-        for entry in entries {
-            if let Ok(mut e) = entry {
-                let size = e.size();
-                let path = e.path().unwrap().into_owned();
-                let path_str = path.to_string_lossy().to_string();
-                
-                if path_str == "manifest.json" {
-                     let mut content = String::new();
-                     if e.read_to_string(&mut content).is_ok() {
-                         if let Ok(manifest) = serde_json::from_str::<SnapshotManifest>(&content) {
-                             return Ok(manifest.entries.into_iter().map(|en| (en.path, en.size)).collect());
-                         }
-                     }
-                }
-                
-                if !path_str.starts_with("blobs/") && path_str != ".vegh.json" && path_str != "manifest.json" {
-                     results.push((path_str, size));
-                }
+        for mut e in entries.flatten() {
+            let size = e.size();
+            let path = e.path().unwrap().into_owned();
+            let path_str = path.to_string_lossy().to_string();
+
+            if path_str == "manifest.json" {
+                let mut content = String::new();
+                if e.read_to_string(&mut content).is_ok()
+                    && let Ok(manifest) = serde_json::from_str::<SnapshotManifest>(&content) {
+                        return Ok(manifest
+                            .entries
+                            .into_iter()
+                            .map(|en| (en.path, en.size))
+                            .collect());
+                    }
+            }
+
+            if !path_str.starts_with("blobs/")
+                && path_str != ".vegh.json"
+                && path_str != "manifest.json"
+            {
+                results.push((path_str, size));
             }
         }
     }
@@ -529,6 +550,6 @@ fn pyvegh_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(list_files_details, m)?)?;
     m.add_function(wrap_pyfunction!(get_context_xml, m)?)?;
     m.add_function(wrap_pyfunction!(search_snap, m)?)?;
-    m.add_function(wrap_pyfunction!(count_locs, m)?)?; 
+    m.add_function(wrap_pyfunction!(count_locs, m)?)?;
     Ok(())
 }

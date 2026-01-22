@@ -14,7 +14,9 @@ use std::sync::{
 use std::time::SystemTime;
 
 use crate::hash::{compute_chunks, compute_file_hash, compute_sparse_hash};
-use crate::storage::{CACHE_DIR, CacheDB, FileCacheEntry, ManifestEntry, SnapshotManifest, StoredChunk};
+use crate::storage::{
+    CACHE_DIR, CacheDB, FileCacheEntry, ManifestEntry, SnapshotManifest, StoredChunk,
+};
 
 // --- CONSTANTS from Vegh 0.4.0 ---
 const PRESERVED_FILES: &[&str] = &[".veghignore", ".gitignore", ".npmignore", ".dockerignore"];
@@ -57,9 +59,9 @@ struct MetadataInfo {
 }
 
 enum DataAction {
-    Cached,                      
-    WriteFile(Vec<u8>),          
-    WriteChunks(Vec<StoredChunk>), 
+    Cached,
+    WriteFile(Vec<u8>),
+    WriteChunks(Vec<StoredChunk>),
 }
 
 // --- Main Packing Logic ---
@@ -136,16 +138,16 @@ pub fn create_snap_logic(
     // Reconstruct ignore logic
     let mut override_builder = OverrideBuilder::new(&source_buf);
     for pattern in include {
-         let _ = override_builder.add(&pattern);
+        let _ = override_builder.add(&pattern);
     }
     for pattern in exclude {
         let _ = override_builder.add(&format!("!{}", pattern));
     }
-    
+
     // FIX: Override does not implement Default, so handle error manually
-    let overrides = override_builder.build().unwrap_or_else(|_| {
-        OverrideBuilder::new(&source_buf).build().unwrap()
-    });
+    let overrides = override_builder
+        .build()
+        .unwrap_or_else(|_| OverrideBuilder::new(&source_buf).build().unwrap());
 
     let scanner_handle = std::thread::spawn(move || {
         let mut builder = WalkBuilder::new(&source_buf_for_scan);
@@ -157,18 +159,20 @@ pub fn create_snap_logic(
         builder.hidden(true).git_ignore(true).overrides(overrides);
 
         for result in builder.build() {
-            if !r_scan.load(Ordering::SeqCst) { break; }
-            if let Ok(entry) = result {
-                 if entry.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
+            if !r_scan.load(Ordering::SeqCst) {
+                break;
+            }
+            if let Ok(entry) = result
+                && entry.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
                     // Check against output file recursion
-                    if let Ok(abs) = fs::canonicalize(entry.path()) {
-                        if abs == output_abs { continue; }
-                    }
+                    if let Ok(abs) = fs::canonicalize(entry.path())
+                        && abs == output_abs {
+                            continue;
+                        }
                     if path_tx_for_scan.send(entry.path().to_path_buf()).is_err() {
                         break;
                     }
                 }
-            }
         }
     });
 
@@ -189,14 +193,17 @@ pub fn create_snap_logic(
 
         worker_handles.push(std::thread::spawn(move || {
             while let Ok(path) = rx.recv() {
-                if !r_worker.load(Ordering::SeqCst) { break; }
+                if !r_worker.load(Ordering::SeqCst) {
+                    break;
+                }
 
                 let process_res = (|| -> Result<ProcessedMessage> {
                     let name = path.strip_prefix(&src_root).unwrap_or(&path);
                     let name_str = name.to_string_lossy().to_string();
                     let metadata = path.metadata()?;
                     let size = metadata.len();
-                    let modified = metadata.modified()
+                    let modified = metadata
+                        .modified()
                         .unwrap_or(SystemTime::UNIX_EPOCH)
                         .duration_since(SystemTime::UNIX_EPOCH)
                         .unwrap_or_default()
@@ -205,70 +212,97 @@ pub fn create_snap_logic(
                     #[cfg(unix)]
                     let (mode, inode, device_id, ctime_sec, ctime_nsec) = {
                         use std::os::unix::fs::MetadataExt;
-                        (metadata.mode(), metadata.ino(), metadata.dev(), metadata.ctime(), metadata.ctime_nsec() as u32)
+                        (
+                            metadata.mode(),
+                            metadata.ino(),
+                            metadata.dev(),
+                            metadata.ctime(),
+                            metadata.ctime_nsec() as u32,
+                        )
                     };
                     #[cfg(not(unix))]
                     let (mode, inode, device_id, ctime_sec, ctime_nsec) = (0o644, 0, 0, 0, 0);
 
-                    let now_ts = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+                    let now_ts = SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs();
                     let use_cdc = size > CDC_THRESHOLD;
 
-                    let cached_entry_opt = if no_cache_flag { None } else { reader.get(&name_str)? };
+                    let cached_entry_opt = if no_cache_flag {
+                        None
+                    } else {
+                        reader.get(&name_str)?
+                    };
 
-                    let (hash, chunks_info, is_cached_hit) = if let Some(ref cached_entry) = cached_entry_opt {
-                         let is_hit = cached_entry.modified == modified
-                            && cached_entry.size == size
-                            && cached_entry.inode == inode
-                            && (cached_entry.device_id == 0 || device_id == 0 || cached_entry.device_id == device_id)
-                            && cached_entry.hash.is_some();
-                        
-                        if is_hit {
-                             if use_cdc {
-                                if let Ok(Some(chunks)) = cached_entry.get_chunks() {
-                                    (cached_entry.hash.unwrap(), Some(chunks), true)
+                    let (hash, chunks_info, is_cached_hit) =
+                        if let Some(ref cached_entry) = cached_entry_opt {
+                            let is_hit = cached_entry.modified == modified
+                                && cached_entry.size == size
+                                && cached_entry.inode == inode
+                                && (cached_entry.device_id == 0
+                                    || device_id == 0
+                                    || cached_entry.device_id == device_id)
+                                && cached_entry.hash.is_some();
+
+                            if is_hit {
+                                if use_cdc {
+                                    if let Ok(Some(chunks)) = cached_entry.get_chunks() {
+                                        (cached_entry.hash.unwrap(), Some(chunks), true)
+                                    } else {
+                                        let (h, chunks) = compute_chunks(&path, CDC_AVG_SIZE)?;
+                                        let stored_chunks: Vec<StoredChunk> = chunks
+                                            .into_iter()
+                                            .map(|c| StoredChunk {
+                                                hash: c.hash,
+                                                offset: c.offset as u64,
+                                                length: c.length as u32,
+                                            })
+                                            .collect();
+                                        (h, Some(stored_chunks), false)
+                                    }
                                 } else {
-                                    let (h, chunks) = compute_chunks(&path, CDC_AVG_SIZE)?;
-                                    let stored_chunks: Vec<StoredChunk> = chunks.into_iter().map(|c| StoredChunk {
-                                        hash: c.hash, offset: c.offset as u64, length: c.length as u32
-                                    }).collect();
-                                    (h, Some(stored_chunks), false)
+                                    (cached_entry.hash.unwrap(), None, true)
                                 }
-                             } else {
-                                 (cached_entry.hash.unwrap(), None, true)
-                             }
-                        } else {
-                             if use_cdc {
+                            } else if use_cdc {
                                 let (h, chunks) = compute_chunks(&path, CDC_AVG_SIZE)?;
-                                let stored_chunks: Vec<StoredChunk> = chunks.into_iter().map(|c| StoredChunk {
-                                    hash: c.hash, offset: c.offset as u64, length: c.length as u32
-                                }).collect();
+                                let stored_chunks: Vec<StoredChunk> = chunks
+                                    .into_iter()
+                                    .map(|c| StoredChunk {
+                                        hash: c.hash,
+                                        offset: c.offset as u64,
+                                        length: c.length as u32,
+                                    })
+                                    .collect();
                                 (h, Some(stored_chunks), false)
                             } else {
                                 let h = compute_file_hash(&path)?;
                                 (h, None, false)
                             }
-                        }
-                    } else {
-                        if use_cdc {
+                        } else if use_cdc {
                             let (h, chunks) = compute_chunks(&path, CDC_AVG_SIZE)?;
-                            let stored_chunks: Vec<StoredChunk> = chunks.into_iter().map(|c| StoredChunk {
-                                    hash: c.hash, offset: c.offset as u64, length: c.length as u32
-                                }).collect();
+                            let stored_chunks: Vec<StoredChunk> = chunks
+                                .into_iter()
+                                .map(|c| StoredChunk {
+                                    hash: c.hash,
+                                    offset: c.offset as u64,
+                                    length: c.length as u32,
+                                })
+                                .collect();
                             (h, Some(stored_chunks), false)
                         } else {
                             let h = compute_file_hash(&path)?;
                             (h, None, false)
-                        }
-                    };
+                        };
 
                     let mut data_action = DataAction::Cached;
                     if let Some(chunks) = chunks_info.clone() {
                         let mut chunks_to_write = Vec::new();
                         for c in chunks {
-                             let hex_h = hex::encode(c.hash);
-                             if !blobs.contains_key(&hex_h) {
-                                 chunks_to_write.push(c);
-                             }
+                            let hex_h = hex::encode(c.hash);
+                            if !blobs.contains_key(&hex_h) {
+                                chunks_to_write.push(c);
+                            }
                         }
                         if !chunks_to_write.is_empty() {
                             data_action = DataAction::WriteChunks(chunks_to_write);
@@ -281,7 +315,12 @@ pub fn create_snap_logic(
                     }
 
                     let mut entry = FileCacheEntry {
-                        size, modified, inode, device_id, ctime_sec, ctime_nsec,
+                        size,
+                        modified,
+                        inode,
+                        device_id,
+                        ctime_sec,
+                        ctime_nsec,
                         last_seen: now_ts,
                         hash: Some(hash),
                         chunks_compressed: None,
@@ -301,7 +340,11 @@ pub fn create_snap_logic(
                     Ok(ProcessedMessage {
                         path_str: name_str,
                         abs_path: path,
-                        metadata_info: MetadataInfo { size, modified, mode },
+                        metadata_info: MetadataInfo {
+                            size,
+                            modified,
+                            mode,
+                        },
                         entry,
                         data_action,
                         is_cached_hit,
@@ -309,8 +352,12 @@ pub fn create_snap_logic(
                 })();
 
                 match process_res {
-                    Ok(msg) => { let _ = tx.send(WorkerResult::Processed(msg)); },
-                    Err(e) => { let _ = tx.send(WorkerResult::Error(e.to_string())); }
+                    Ok(msg) => {
+                        let _ = tx.send(WorkerResult::Processed(msg));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(WorkerResult::Error(e.to_string()));
+                    }
                 }
             }
         }));
@@ -321,7 +368,7 @@ pub fn create_snap_logic(
     drop(res_tx);
 
     let mut count = 0;
-    let mut dedup_count = 0; 
+    let mut dedup_count = 0;
     let mut cache_hit_count = 0;
     let mut manifest = SnapshotManifest::default();
     let mut batch_counter = 0;
@@ -355,10 +402,10 @@ pub fn create_snap_logic(
                     }
                 }
 
-                 match pm.data_action {
+                match pm.data_action {
                     DataAction::Cached => {
                         dedup_count += 1;
-                    },
+                    }
                     DataAction::WriteFile(hash_bytes) => {
                         let hash_hex = hex::encode(&hash_bytes);
                         if !written_blobs.contains_key(&hash_hex) {
@@ -369,40 +416,48 @@ pub fn create_snap_logic(
                         } else {
                             // If it was already in written_blobs (from another file), count as dedup
                             dedup_count += 1;
-                            if let Some(ref p) = pb { p.set_message(format!("Dedup (Blob): {}", pm.path_str)); }
+                            if let Some(ref p) = pb {
+                                p.set_message(format!("Dedup (Blob): {}", pm.path_str));
+                            }
                         }
                     }
                     DataAction::WriteChunks(chunks) => {
-                         let mut f = File::open(&pm.abs_path)?;
-                         let mut any_written = false;
-                         for chunk in chunks {
-                             let chunk_hex = hex::encode(chunk.hash);
-                             if !written_blobs.contains_key(&chunk_hex) {
-                                 let blob_path = format!("blobs/{}", chunk_hex);
-                                 f.seek(SeekFrom::Start(chunk.offset))?;
-                                 let mut chunk_buf = vec![0u8; chunk.length as usize];
-                                 f.read_exact(&mut chunk_buf)?;
-                                 
-                                 let mut header = tar::Header::new_gnu();
-                                 header.set_path(&blob_path)?;
-                                 header.set_size(chunk.length as u64);
-                                 header.set_mode(0o644);
-                                 header.set_cksum();
-                                 tar.append_data(&mut header, &blob_path, &chunk_buf[..])?;
-                                 written_blobs.insert(chunk_hex, ());
-                                 any_written = true;
-                             }
-                         }
-                         if !any_written {
-                             dedup_count += 1;
-                             if let Some(ref p) = pb { p.set_message(format!("Dedup (Chunks): {}", pm.path_str)); }
-                         }
+                        let mut f = File::open(&pm.abs_path)?;
+                        let mut any_written = false;
+                        for chunk in chunks {
+                            let chunk_hex = hex::encode(chunk.hash);
+                            if !written_blobs.contains_key(&chunk_hex) {
+                                let blob_path = format!("blobs/{}", chunk_hex);
+                                f.seek(SeekFrom::Start(chunk.offset))?;
+                                let mut chunk_buf = vec![0u8; chunk.length as usize];
+                                f.read_exact(&mut chunk_buf)?;
+
+                                let mut header = tar::Header::new_gnu();
+                                header.set_path(&blob_path)?;
+                                header.set_size(chunk.length as u64);
+                                header.set_mode(0o644);
+                                header.set_cksum();
+                                tar.append_data(&mut header, &blob_path, &chunk_buf[..])?;
+                                written_blobs.insert(chunk_hex, ());
+                                any_written = true;
+                            }
+                        }
+                        if !any_written {
+                            dedup_count += 1;
+                            if let Some(ref p) = pb {
+                                p.set_message(format!("Dedup (Chunks): {}", pm.path_str));
+                            }
+                        }
                     }
                 }
 
                 cache_db.insert(&pm.path_str, &pm.entry)?;
 
-                let chunk_hashes_hex: Option<Vec<String>> = pm.entry.get_chunks().ok().flatten()
+                let chunk_hashes_hex: Option<Vec<String>> = pm
+                    .entry
+                    .get_chunks()
+                    .ok()
+                    .flatten()
                     .map(|v| v.iter().map(|c| hex::encode(c.hash)).collect());
 
                 manifest.entries.push(ManifestEntry {
@@ -425,7 +480,9 @@ pub fn create_snap_logic(
     }
 
     let _ = scanner_handle.join();
-    for h in worker_handles { let _ = h.join(); }
+    for h in worker_handles {
+        let _ = h.join();
+    }
 
     if let Some(p) = pb {
         p.finish_with_message(format!(
@@ -453,7 +510,12 @@ pub fn create_snap_logic(
     Ok(count)
 }
 
-pub fn restore_snap_logic(input: &Path, out_dir: &Path, include: Option<Vec<String>>, flatten: bool) -> Result<()> {
+pub fn restore_snap_logic(
+    input: &Path,
+    out_dir: &Path,
+    include: Option<Vec<String>>,
+    flatten: bool,
+) -> Result<()> {
     if !out_dir.exists() {
         fs::create_dir_all(out_dir)?;
     }
@@ -475,17 +537,22 @@ pub fn restore_snap_logic(input: &Path, out_dir: &Path, include: Option<Vec<Stri
 
     for entry in manifest.entries {
         if let Some(ref patterns) = include {
-             let mut matched = false;
-             for p in patterns {
-                 if entry.path.starts_with(p) { matched = true; break; }
-             }
-             if !matched { continue; }
+            let mut matched = false;
+            for p in patterns {
+                if entry.path.starts_with(p) {
+                    matched = true;
+                    break;
+                }
+            }
+            if !matched {
+                continue;
+            }
         }
 
         let dest_path = if flatten {
-             out_dir.join(Path::new(&entry.path).file_name().unwrap())
+            out_dir.join(Path::new(&entry.path).file_name().unwrap())
         } else {
-             out_dir.join(&entry.path)
+            out_dir.join(&entry.path)
         };
 
         if let Some(parent) = dest_path.parent() {
