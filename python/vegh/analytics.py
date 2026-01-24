@@ -8,12 +8,12 @@ from rich import box
 from rich.layout import Layout
 from rich.align import Align
 
-from .jsonc import parse_jsonc
+from .jsonc import parse
 
 # Load configuration from JSON
 config_path = Path(__file__).parent / "config.jsonc"
 with open(config_path, "r", encoding="utf-8") as f:
-    config = parse_jsonc(f.read())
+    config = parse(f.read())
 
 LANG_MAP = {k: tuple(v) for k, v in config["LANG_MAP"].items()}
 SLOC_IGNORE_EXTS = set(config["SLOC_IGNORE_EXTS"])

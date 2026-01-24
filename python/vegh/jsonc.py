@@ -1,13 +1,13 @@
 # A simple JSONC parser, written to avoid extra dependencies.
 # It removes comments from JSONC strings and parses the result as JSON.
-# Use internally in vegh only, so we probably don't need advance parsing features.  
+# Use internally only, so we probably don't need advance parsing features.  
 
 import json
 import re
 from typing import Any
 
 
-def parse_jsonc(jsonc_str: str) -> Any:
+def parse(jsonc_str: str) -> Any:
     """
     Safely parse JSONC (JSON with comments) into Python objects.
     Removes // single-line and /* multi-line */ comments, ignoring those inside strings.

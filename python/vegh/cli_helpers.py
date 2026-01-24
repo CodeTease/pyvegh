@@ -1,5 +1,5 @@
 import json
-from .jsonc import parse_jsonc
+from .jsonc import parse
 import subprocess
 import sys
 from pathlib import Path
@@ -12,7 +12,7 @@ console = Console()
 # Load built-in config
 CONFIG_FILE_PATH = Path(__file__).parent / "config.jsonc"
 with open(CONFIG_FILE_PATH, "r") as f:
-    CONFIG = parse_jsonc(f.read())
+    CONFIG = parse(f.read())
 
 # Constants from config
 CHUNK_THRESHOLD = CONFIG["CHUNK_THRESHOLD"]
