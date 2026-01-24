@@ -20,6 +20,11 @@ def load_hooks(project_path: Path) -> Dict[str, List[str]]:
 def execute_hooks(commands: List[str], hook_name: str) -> bool:
     if not commands:
         return True
+
+    # Just a friendly warning for the unsuspecting user
+    console.print(f"[bold yellow]⚠ Running {hook_name} hooks from project config...[/bold yellow]")
+
+
     console.print(f"[bold magenta]>>> HOOK: {hook_name}[/bold magenta]")
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"

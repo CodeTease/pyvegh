@@ -21,13 +21,16 @@ It delivers the raw performance of Rust (Zstd multithreaded compression, Tar arc
 ## Installation
 
 Install directly from PyPI:
-```bash
+```shell
 pip install pyvegh
+
+# Or via uv
+uv pip install pyvegh
 ```
 
 Or build from source (requires Rust):
 
-```bash
+```shell
 maturin develop --release
 ```
 
@@ -39,7 +42,7 @@ PyVegh provides a powerful command-line interface via the `vegh` (or `pyvegh`) c
 
 Set up your default server URL and Auth Token so you don't have to type them every time.
 
-```bash
+```shell
 vegh config
 # Or one-liner:
 vegh config send --url https://api.teaserverse.online/test --auth YOUR_TOKEN
@@ -55,7 +58,7 @@ vegh config reset
 
 Pack a directory into a highly compressed snapshot.
 
-```bash
+```shell
 # Basic snapshot
 vegh snap ./my-project --output backup.vegh
 
@@ -67,7 +70,7 @@ vegh snap ./my-project --dry-run
 
 View the Analytics Dashboard to break down your project by language and lines of code.
 
-```bash
+```shell
 vegh loc backup.vegh
 
 # Show Source Lines of Code (SLOC) instead of total LOC
@@ -78,7 +81,7 @@ vegh loc backup.vegh --sloc
 ### 4\. Prompt
 
 Generate a structured XML context of your codebase to feed directly into ChatGPT, Claude, or Gemini.
-```bash
+```shell
 # Generate XML context to stdout
 vegh prompt .
 
@@ -97,7 +100,7 @@ vegh prompt . --clean --output context.xml
 
 Clean up old snapshots to free disk space.
 
-```bash
+```shell
 # Keep only the 5 most recent snapshots in the current directory
 vegh prune --keep 5
 
@@ -109,7 +112,7 @@ vegh prune --keep 1 --force
 
 Check file integrity (Blake3) and view embedded metadata.
 
-```bash
+```shell
 vegh check backup.vegh
 ```
 
@@ -117,7 +120,7 @@ vegh check backup.vegh
 
 Restore the snapshot to a target directory. Supports **Partial Restore**.
 
-```bash
+```shell
 # Full restore
 vegh restore backup.vegh ./restored-folder
 
@@ -132,7 +135,7 @@ vegh restore backup.vegh ./restored-folder --flatten
 
 Inspect content without extracting.
 
-```bash
+```shell
 # View a file's content inside the snapshot
 vegh cat backup.vegh src/main.rs
 
@@ -147,7 +150,7 @@ vegh diff backup.vegh ./current-project
 
 Send the snapshot to a remote server. Supports **Chunked Uploads** for reliability.
 
-```bash
+```shell
 # Auto-detects if chunking is needed, or force it:
 vegh send backup.vegh --force-chunk
 ```
@@ -156,7 +159,7 @@ vegh send backup.vegh --force-chunk
 
 Check your environment and installation health.
 
-```bash
+```shell
 vegh doctor
 ```
 
@@ -166,18 +169,8 @@ Create a `.veghhooks.json` in your workspace.
 
 ```json
 {
-  "hooks": {
-    "pre": [
-      "echo '🚀 Pre-snap hook started...'",
-      "echo 'Preparing to backup...'",
-      "echo 'Backing up database...'",
-      "echo 'Backup completed.'"
-    ],
-    "post": [
-      "echo '🎉 Snapshot completed!'",
-      "echo 'Cleaning up...'"
-    ]
-  }
+  "pre": ["echo 'Checking...'", "ruff check -e"],
+  "post": ["echo 'Clean up...'"]
 }
 ```
 

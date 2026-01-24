@@ -12,7 +12,7 @@ from ._core import (
     read_snapshot_text,
 )
 
-__version__ = "0.7.1"
+__version__ = "0.8.0"
 __all__ = [
     "create_snap",
     "dry_run_snap",
