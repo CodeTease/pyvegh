@@ -178,42 +178,43 @@ impl CacheDB {
 
     fn migrate_legacy_json(&mut self, path: &Path) -> Result<()> {
         if let Ok(file) = File::open(path)
-            && let Ok(cache) = serde_json::from_reader::<_, LegacyVeghCache>(file) {
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs();
-                let txn = self.txn.as_mut().unwrap();
+            && let Ok(cache) = serde_json::from_reader::<_, LegacyVeghCache>(file)
+        {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            let txn = self.txn.as_mut().unwrap();
 
-                let mut data = txn.open_table(TABLE_DATA_V3)?;
-                let mut inodes = txn.open_table(TABLE_INODES_V3)?;
+            let mut data = txn.open_table(TABLE_DATA_V3)?;
+            let mut inodes = txn.open_table(TABLE_INODES_V3)?;
 
-                for (k, v) in cache.files {
-                    let hash_bytes = v
-                        .hash
-                        .and_then(|h| hex::decode(h).ok())
-                        .and_then(|v| v.try_into().ok());
+            for (k, v) in cache.files {
+                let hash_bytes = v
+                    .hash
+                    .and_then(|h| hex::decode(h).ok())
+                    .and_then(|v| v.try_into().ok());
 
-                    let new_entry = FileCacheEntry {
-                        size: v.size,
-                        modified: v.modified,
-                        inode: v.inode,
-                        ctime_sec: 0,
-                        ctime_nsec: 0,
-                        device_id: 0,
-                        last_seen: now,
-                        hash: hash_bytes,
-                        chunks_compressed: None, // Force re-chunking
-                        sparse_hash: None,
-                    };
+                let new_entry = FileCacheEntry {
+                    size: v.size,
+                    modified: v.modified,
+                    inode: v.inode,
+                    ctime_sec: 0,
+                    ctime_nsec: 0,
+                    device_id: 0,
+                    last_seen: now,
+                    hash: hash_bytes,
+                    chunks_compressed: None, // Force re-chunking
+                    sparse_hash: None,
+                };
 
-                    let bytes = bincode::serialize(&new_entry)?;
-                    data.insert(k.as_str(), bytes.as_slice())?;
-                    if new_entry.inode > 0 {
-                        inodes.insert(new_entry.inode, k.as_str())?;
-                    }
+                let bytes = bincode::serialize(&new_entry)?;
+                data.insert(k.as_str(), bytes.as_slice())?;
+                if new_entry.inode > 0 {
+                    inodes.insert(new_entry.inode, k.as_str())?;
                 }
             }
+        }
         // Remove legacy file after migration
         let _ = fs::remove_file(path);
         Ok(())
@@ -255,9 +256,10 @@ impl CacheDB {
                 for res in table.iter()? {
                     let (k, v) = res?;
                     if let Ok(entry) = bincode::deserialize::<FileCacheEntry>(v.value())
-                        && now.saturating_sub(entry.last_seen) >= retention_seconds {
-                            keys_to_remove.push((k.value().to_string(), entry.inode));
-                        }
+                        && now.saturating_sub(entry.last_seen) >= retention_seconds
+                    {
+                        keys_to_remove.push((k.value().to_string(), entry.inode));
+                    }
                 }
             }
         }

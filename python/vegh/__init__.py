@@ -9,9 +9,10 @@ from ._core import (
     get_metadata,
     count_locs,
     scan_locs_dir,
+    read_snapshot_text,
 )
 
-__version__ = "0.7.0"
+__version__ = "0.7.1"
 __all__ = [
     "create_snap",
     "dry_run_snap",
@@ -20,5 +21,6 @@ __all__ = [
     "get_metadata",
     "count_locs",
     "scan_locs_dir",
+    "read_snapshot_text",
     "__version__",
 ]

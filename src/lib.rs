@@ -92,6 +92,29 @@ fn load_snapshot_data(
     }
 }
 
+// --- FIX 1: Add helper to read snapshot files as text for SLOC analysis ---
+#[pyfunction]
+fn read_snapshot_text(file_path: String) -> PyResult<Vec<(String, String)>> {
+    let path = Path::new(&file_path);
+
+    // Reuse existing load_snapshot_data logic (Handles both V2 and V3/Blobs)
+    let files = load_snapshot_data(path, |_| true)
+        .map_err(|e| PyIOError::new_err(format!("Failed to read snapshot: {}", e)))?;
+
+    let mut results = Vec::new();
+    for (name, content) in files {
+        // Skip binary files (check for null byte)
+        if content.contains(&0) {
+            continue;
+        }
+        // Convert to string (lossy to handle potential non-UTF8 comments safely)
+        let text = String::from_utf8_lossy(&content).to_string();
+        results.push((name, text));
+    }
+
+    Ok(results)
+}
+
 // --- PyFunctions Wrappers ---
 
 #[pyfunction]
@@ -157,13 +180,14 @@ fn list_files(file_path: String) -> PyResult<Vec<String>> {
             if path_str == "manifest.json" {
                 let mut content = String::new();
                 if e.read_to_string(&mut content).is_ok()
-                    && let Ok(manifest) = serde_json::from_str::<SnapshotManifest>(&content) {
-                        files = manifest
-                            .entries
-                            .into_iter()
-                            .map(|entry| entry.path)
-                            .collect();
-                    }
+                    && let Ok(manifest) = serde_json::from_str::<SnapshotManifest>(&content)
+                {
+                    files = manifest
+                        .entries
+                        .into_iter()
+                        .map(|entry| entry.path)
+                        .collect();
+                }
             } else if !path_str.starts_with("blobs/") && path_str != ".vegh.json" {
                 files.push(path_str);
             }
@@ -184,12 +208,13 @@ fn get_metadata(file_path: String) -> PyResult<String> {
         for entry in entries {
             if let Ok(mut e) = entry
                 && let Ok(p) = e.path()
-                    && p.to_string_lossy() == ".vegh.json" {
-                        let mut content = String::new();
-                        e.read_to_string(&mut content)
-                            .map_err(|e| PyIOError::new_err(e.to_string()))?;
-                        return Ok(content);
-                    }
+                && p.to_string_lossy() == ".vegh.json"
+            {
+                let mut content = String::new();
+                e.read_to_string(&mut content)
+                    .map_err(|e| PyIOError::new_err(e.to_string()))?;
+                return Ok(content);
+            }
         }
     }
     Err(PyValueError::new_err("Metadata not found in snapshot"))
@@ -448,7 +473,9 @@ fn cat_file(file_path: String, target_file: String) -> PyResult<Vec<u8>> {
     }
 }
 
+// --- FIX 2: Add signature attribute to scan_locs_dir ---
 #[pyfunction]
+#[pyo3(signature = (source, exclude=None))]
 fn scan_locs_dir(source: String, exclude: Option<Vec<String>>) -> PyResult<Vec<(String, usize)>> {
     let source_path = Path::new(&source);
     let mut results = Vec::new();
@@ -516,13 +543,14 @@ fn list_files_details(file_path: String) -> PyResult<Vec<(String, u64)>> {
             if path_str == "manifest.json" {
                 let mut content = String::new();
                 if e.read_to_string(&mut content).is_ok()
-                    && let Ok(manifest) = serde_json::from_str::<SnapshotManifest>(&content) {
-                        return Ok(manifest
-                            .entries
-                            .into_iter()
-                            .map(|en| (en.path, en.size))
-                            .collect());
-                    }
+                    && let Ok(manifest) = serde_json::from_str::<SnapshotManifest>(&content)
+                {
+                    return Ok(manifest
+                        .entries
+                        .into_iter()
+                        .map(|en| (en.path, en.size))
+                        .collect());
+                }
             }
 
             if !path_str.starts_with("blobs/")
@@ -551,5 +579,6 @@ fn pyvegh_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(get_context_xml, m)?)?;
     m.add_function(wrap_pyfunction!(search_snap, m)?)?;
     m.add_function(wrap_pyfunction!(count_locs, m)?)?;
+    m.add_function(wrap_pyfunction!(read_snapshot_text, m)?)?;
     Ok(())
 }

@@ -8,372 +8,17 @@ from rich import box
 from rich.layout import Layout
 from rich.align import Align
 
-# --- LANGUAGE DEFINITIONS ---
-# Map extension -> (Language Name, Color)
-# --- LANGUAGE DEFINITIONS (UPDATED) ---
-LANG_MAP = {
-    # Systems & Low Level
-    ".rs": ("Rust", "red"),
-    ".c": ("C", "white"),
-    ".h": ("C/C++", "white"),
-    ".cpp": ("C++", "blue"),
-    ".hpp": ("C++", "blue"),
-    ".cc": ("C++", "blue"),
-    ".cxx": ("C++", "blue"),
-    ".ino": ("Arduino", "blue"),  # Actually it's C++
-    ".go": ("Go", "cyan"),
-    ".asm": ("Assembly", "white"),
-    ".s": ("Assembly", "white"),
-    ".zig": ("Zig", "yellow"),
-    ".f90": ("Fortran", "magenta"),
-    ".f95": ("Fortran", "magenta"),
-    ".f03": ("Fortran", "magenta"),
-    ".f08": ("Fortran", "magenta"),
-    ".f": ("Fortran", "magenta"),
-    ".hs": ("Haskell", "magenta"),
-    ".ml": ("OCaml", "yellow"),
-    ".mli": ("OCaml", "yellow"),
-    ".nim": ("Nim", "cyan"),
-    ".v": ("V", "green"),
-    ".ada": ("Ada", "red"),
-    ".adb": ("Ada", "red"),
-    ".ads": ("Ada", "red"),
-    ".fs": ("F#", "blue"),
-    ".fsi": ("F#", "blue"),
-    ".fsx": ("F#", "blue"),
-    ".sv": ("SystemVerilog", "cyan"),
-    ".svh": ("SystemVerilog", "cyan"),
-    # ".v": ("Verilog", "cyan"), # Conflict with VLang
-    ".pas": ("Pascal", "yellow"),
-    ".pp": ("Pascal", "cyan"),
-    # Enterprise & Mobile
-    ".java": ("Java", "red"),
-    ".jav": ("Java", "red"),
-    ".scala": ("Scala", "red"),
-    ".groovy": ("Groovy", "white"),
-    ".clj": ("Clojure", "green"),
-    ".cljs": ("ClojureScript", "green"),
-    ".cljc": ("Clojure (Common)", "green"),
-    ".kt": ("Kotlin", "magenta"),
-    ".kts": ("Kotlin", "magenta"),
-    ".cs": ("C#", "green"),
-    ".swift": ("Swift", "bright_red"),
-    ".m": ("Objective-C", "blue"),  # Could be Matlab too
-    ".dart": ("Dart", "cyan"),
-    ".ex": ("Elixir", "purple"),
-    ".exs": ("Elixir", "purple"),
-    ".erl": ("Erlang", "red"),
-    ".gleam": ("Gleam", "pink1"),
-    ".kmp": ("Kotlin Multiplatform", "magenta"),
-    # Web & Scripting
-    ".py": ("Python", "blue"),
-    ".pyi": ("Python", "blue"),
-    ".ipynb": ("Jupyter", "yellow"),
-    ".js": ("JavaScript", "yellow"),
-    ".jsx": ("JavaScript (React)", "yellow"),
-    ".mjs": ("JavaScript (ESM)", "yellow"),
-    ".cjs": ("JavaScript (CJS)", "yellow"),
-    ".coffee": ("CoffeeScript", "brown"),
-    ".ts": ("TypeScript", "cyan"),
-    ".tsx": ("TypeScript (React)", "cyan"),
-    ".vue": ("Vue", "green"),
-    ".astro": ("Astro", "orange3"),
-    ".html": ("HTML", "magenta"),
-    ".htm": ("HTML", "magenta"),
-    ".css": ("CSS", "blue_violet"),
-    ".scss": ("SCSS", "magenta"),
-    ".sass": ("Sass", "magenta"),
-    ".hcl": ("HCL", "purple"),
-    ".tex": ("LaTeX", "blue"),
-    ".less": ("LESS", "blue"),
-    ".styl": ("Stylus", "green"),
-    ".twig": ("Twig", "green"),
-    ".svelte": ("Svelte", "orange_red1"),
-    ".heex": ("Phoenix HEEx", "purple"),
-    ".leex": ("Phoenix LEEx", "purple"),
-    ".mjml": ("MJML (Email)", "cyan"),
-    ".liquid": ("Liquid", "blue"),
-    ".php": ("PHP", "magenta"),
-    ".rb": ("Ruby", "red"),
-    ".rake": ("Ruby", "red"),
-    ".lua": ("Lua", "blue"),
-    ".cr": ("Crystal", "white"),
-    ".pl": ("Perl", "blue"),  # Could be Prolog too
-    ".pm": ("Perl", "blue"),
-    ".sh": ("Shell", "green"),
-    ".bash": ("Shell", "green"),
-    ".zsh": ("Shell", "green"),
-    ".ps1": ("PowerShell", "blue"),
-    ".psm1": ("PowerShell", "blue"),
-    ".bat": ("Batch", "yellow"),
-    ".cmd": ("Batch", "yellow"),
-    # Game Development
-    ".gd": ("GDScript", "white"),
-    ".glsl": ("GLSL", "green"),
-    ".hlsl": ("HLSL", "green"),
-    ".wgsl": ("WGSL", "green"),
-    # Data & Config
-    ".json": ("JSON", "yellow"),
-    ".toml": ("TOML", "yellow"),
-    ".yaml": ("YAML", "yellow"),
-    ".yml": ("YAML", "yellow"),
-    ".xml": ("XML", "magenta"),
-    ".sql": ("SQL", "yellow"),
-    ".md": ("Markdown", "white"),
-    ".txt": ("Text", "white"),
-    ".ini": ("INI", "white"),
-    ".conf": ("Config", "white"),
-    ".csv": ("CSV", "green"),
-    ".tsv": ("TSV", "green"),
-    # AI & TeaserLang
-    ".mojo": ("Mojo", "red"),
-    ".🔥": ("Mojo", "red"),
-    ".fdon": ("FDON", "bright_green"),
-    ".fwon": ("FWON", "bright_green"),
-    ".bxson": ("BXSON", "bright_green"),
-    # Infrastructure & Others
-    ".dockerfile": ("Dockerfile", "blue"),
-    ".tf": ("Terraform", "magenta"),
-    ".nix": ("Nix", "cyan"),
-    ".sol": ("Solidity", "bright_cyan"),
-    ".r": ("R", "blue"),
-    ".hack": ("Hack", "cyan"),
-    ".jl": ("Julia", "purple"),
-    ".wat": ("WebAssembly Text", "white"),
-    ".proto": ("Protobuf", "cyan"),
-    ".log": ("Log", "dim white"),
-    ".prisma": ("Prisma", "white"),
-    ".graphql": ("GraphQL", "magenta"),
-    ".gql": ("GraphQL", "magenta"),
-    ".vto": ("Vento", "bright_green"),
-    ".env": ("Env Config", "red"),
-    ".lock": ("Lock File", "dim white"),
-}
+from .jsonc import parse_jsonc
 
-# --- SLOC CONFIGURATION ---
-SLOC_IGNORE_EXTS = {
-    ".lock",
-    ".md",
-    ".json",
-    ".svg",
-    ".png",
-    ".jpg",
-    ".jpeg",
-    ".gif",
-    ".ico",
-    ".pdf",
-    ".zip",
-    ".tar",
-    ".gz",
-    ".7z",
-    ".rar",
-    ".vegh",
-    ".pyc",
-    ".o",
-    ".obj",
-    ".dll",
-    ".so",
-    ".exe",
-    ".class",
-    ".jar",
-    ".xml",
-    ".yaml",
-    ".yml",
-    ".toml",
-    ".ini",
-    ".conf",
-    ".cfg",
-    ".txt",
-    ".log",
-    ".csv",
-    ".tsv",
-    ".sql",
-    ".css",
-    ".scss",
-    ".sass",
-    ".less",
-    ".styl",
-    ".html",
-    ".htm",
-}
+# Load configuration from JSON
+config_path = Path(__file__).parent / "config.jsonc"
+with open(config_path, "r", encoding="utf-8") as f:
+    config = parse_jsonc(f.read())
 
-COMMENT_MAP = {
-    # C-style
-    ".c": "//",
-    ".cpp": "//",
-    ".h": "//",
-    ".hpp": "//",
-    ".cc": "//",
-    ".cxx": "//",
-    ".java": "//",
-    ".cs": "//",
-    ".js": "//",
-    ".ts": "//",
-    ".jsx": "//",
-    ".tsx": "//",
-    ".go": "//",
-    ".rs": "//",
-    ".kt": "//",
-    ".swift": "//",
-    ".dart": "//",
-    ".scala": "//",
-    ".groovy": "//",
-    ".php": "//",
-    ".v": "//",
-    ".zig": "//",
-    ".sol": "//",
-    ".proto": "//",
-    ".prisma": "//",
-    ".glsl": "//",
-    ".hlsl": "//",
-    # Script-style
-    ".py": "#",
-    ".rb": "#",
-    ".sh": "#",
-    ".bash": "#",
-    ".zsh": "#",
-    ".pl": "#",
-    ".yaml": "#",
-    ".yml": "#",
-    ".toml": "#",
-    ".dockerfile": "#",
-    ".makefile": "#",
-    ".r": "#",
-    ".elixir": "#",
-    ".ex": "#",
-    ".exs": "#",
-    ".cr": "#",
-    ".jl": "#",
-    ".tf": "#",
-    ".nix": "#",
-    ".ps1": "#",
-    # Others
-    ".lua": "--",
-    ".hs": "--",
-    ".sql": "--",
-    ".ada": "--",
-    ".vhdl": "--",
-    ".elm": "--",
-    ".erl": "%",
-    ".tex": "%",
-    ".prolog": "%",
-    ".vim": '"',
-    ".f90": "!",
-    ".f95": "!",
-    ".clj": ";",
-    ".cljs": ";",
-    ".lisp": ";",
-    ".scm": ";",
-    ".asm": ";",
-    ".ini": ";",
-    ".bat": "REM",
-}
-
-# --- FILENAME MAP ---
-FILENAME_MAP = {
-    "dockerfile": ("Dockerfile", "blue"),
-    "docker-compose.yml": ("Docker Compose", "blue"),
-    "docker-compose.yaml": ("Docker Compose", "blue"),
-    "makefile": ("Makefile", "white"),
-    "justfile": ("Justfile", "yellow"),
-    "procfile": ("Heroku Procfile", "red"),
-    "rakefile": ("Ruby", "red"),
-    "gemfile": ("Ruby Config", "red"),
-    "cargo.toml": ("Cargo", "red"),
-    "pyproject.toml": ("Python Config", "blue"),
-    "package.json": ("NPM Config", "yellow"),
-    "tsconfig.json": ("TS Config", "cyan"),
-    "webpack.config.js": ("Webpack Config", "yellow"),
-    "tailwind.config.js": ("Tailwind Config", "cyan"),
-    "tailwind.config.ts": ("Tailwind Config", "cyan"),
-    "vite.config.js": ("Vite Config", "purple"),
-    "vite.config.ts": ("Vite Config", "purple"),
-    "postcss.config.js": ("PostCSS", "red"),
-    "go.mod": ("Go Module", "cyan"),
-    "go.sum": ("Go Sum", "cyan"),
-    ".gitignore": ("Git Config", "white"),
-    ".dockerignore": ("Docker Ignore", "blue"),
-    ".npmignore": ("NPM Ignore", "yellow"),
-    ".veghignore": ("Vegh Ignore", "bright_green"),
-    ".editorconfig": ("Editor Config", "white"),
-    ".env.example": ("Env Template", "dim white"),
-    ".env.production": ("Env Production", "red"),
-    ".env.local": ("Env Development", "green"),
-    "build.gradle": ("Gradle", "green"),
-    "build.gradle.kts": ("Gradle Kotlin", "green"),
-    "settings.gradle": ("Gradle Settings", "green"),
-    "settings.gradle.kts": ("Gradle Settings Kotlin", "green"),
-    "pom.xml": ("Maven", "red"),
-    "pubspec.yaml": ("Flutter Config", "blue"),
-    "vagrantfile": ("Vagrant", "blue"),
-    "jenkinsfile": ("Groovy", "white"),
-    "wrangler.toml": ("Cloudflare", "orange3"),
-    "vercel.json": ("Vercel", "white"),
-    "netlify.toml": ("Netlify", "cyan"),
-    "next.config.js": ("Next.js Config", "white"),
-    "nuxt.config.js": ("Nuxt.js Config", "green"),
-    "gatsby-config.js": ("Gatsby Config", "purple"),
-    "package-lock.json": ("NPM Lock", "yellow"),
-    "pnpm-lock.yaml": ("PNPM Lock", "yellow"),
-    "pnpm-workspace.yaml": ("PNPM Workspace", "yellow"),
-    "firebase.json": ("Firebase Config", "yellow"),
-    "deno.json": ("Deno Config", "cyan"),
-    "deno.jsonc": ("Deno Config", "cyan"),
-    ".prettierrc": ("Prettier Config", "white"),
-    ".eslintrc": ("ESLint Config", "white"),
-    ".eslintrc.json": ("ESLint Config", "white"),
-    ".eslintrc.js": ("ESLint Config", "white"),
-    "pyrightconfig.json": ("Pyright Config", "blue"),
-    "tslint.json": ("TSLint Config", "cyan"),
-    "composer.json": ("Composer (PHP)", "magenta"),
-    "composer.lock": ("Composer Lock", "magenta"),
-    "setup.py": ("Python Setup", "blue"),
-    "requirements.txt": ("Python Requirements", "blue"),
-    "mix.exs": ("Elixir Mix", "purple"),
-    "rebar.config": ("Erlang Rebar", "red"),
-    "import_map.json": ("Deno Import Map", "cyan"),
-    ".babelrc": ("Babel Config", "yellow"),
-    "babel.config.js": ("Babel Config", "yellow"),
-    ".nycrc": ("Istanbul Config", "yellow"),
-    ".swcrc": ("SWC Config", "cyan"),
-    # CI/CD & DevOps
-    ".gitlab-ci.yml": ("GitLab CI", "orange_red1"),
-    "cloudformation.yaml": ("CloudFormation", "orange3"),
-    "cloudformation.yml": ("CloudFormation", "orange3"),
-    "fly.toml": ("Fly.io Config", "purple"),
-    # CodeTease Specific
-    ".veghhooks.json": ("Vegh Hooks", "bright_green"),
-    "sensify.yaml": ("Sensify Config", "bright_green"),
-    "carade.conf": ("Carade Config", "bright_green"),
-    # Special Cases
-    "license": ("License", "white"),
-    "readme": ("Readme", "white"),
-    "license.md": ("License", "white"),
-    "readme.md": ("Readme", "white"),
-    "license.txt": ("License", "white"),
-    "readme.txt": ("Readme", "white"),
-    "contributing.md": ("Contributing", "white"),
-    "contributing.txt": ("Contributing", "white"),
-    "changelog.md": ("Changelog", "white"),
-    "changelog.txt": ("Changelog", "white"),
-    "security.md": ("Security", "white"),
-    "security.txt": ("Security", "white"),
-    "code_of_conduct.md": ("Code of Conduct", "white"),
-    "code_of_conduct.txt": ("Code of Conduct", "white"),
-    "agents.md": (
-        "Agents",
-        "bright_green",
-    ),  # For AI coding agents, rare but possible. easily find in big repositories
-    "authors.md": ("Authors", "white"),
-    "authors": ("Authors", "white"),
-    "version.txt": ("Version", "white"),
-    "version.md": ("Version", "white"),
-    "version": ("Version", "white"),
-    "codeowners": ("Code Owners", "white"),
-    "funding.yml": ("Funding", "white"),
-    "todo.md": ("Todo", "white"),
-    "todo": ("Todo", "white"),
-}
+LANG_MAP = {k: tuple(v) for k, v in config["LANG_MAP"].items()}
+SLOC_IGNORE_EXTS = set(config["SLOC_IGNORE_EXTS"])
+COMMENT_MAP = config["COMMENT_MAP"]
+FILENAME_MAP = {k: tuple(v) for k, v in config["FILENAME_MAP"].items()}
 
 
 class ProjectStats:
@@ -421,34 +66,6 @@ def _make_bar(label: str, percent: float, color: str, width: int = 30) -> Text:
     return text
 
 
-def calculate_sloc(file_path: str) -> int:
-    """Calculates Source Lines of Code (SLOC).
-    Excludes empty lines and full-line comments.
-    """
-    path = Path(file_path)
-    ext = path.suffix.lower()
-
-    if ext in SLOC_IGNORE_EXTS:
-        return 0
-
-    comment_prefix = COMMENT_MAP.get(ext)
-
-    count = 0
-    try:
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                if comment_prefix and line.startswith(comment_prefix):
-                    continue
-                count += 1
-    except Exception:
-        pass  # Handle binary or read errors gracefully
-
-    return count
-
-
 def scan_sloc(path: str) -> List[Tuple[str, int]]:
     """Scans a directory for SLOC, using core dry_run_snap for traversal."""
     # We need to import dry_run_snap here or pass it in.
@@ -469,6 +86,43 @@ def scan_sloc(path: str) -> List[Tuple[str, int]]:
         results.append((relative_path, sloc))
 
     return results
+
+
+def count_sloc_from_text(content: str, ext: str) -> int:
+    """Core logic to count SLOC from a string content."""
+    if ext in SLOC_IGNORE_EXTS:
+        return 0
+
+    comment_prefix = COMMENT_MAP.get(ext)
+    count = 0
+
+    # Process line by line
+    for line in content.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if comment_prefix and line.startswith(comment_prefix):
+            continue
+        count += 1
+
+    return count
+
+
+def calculate_sloc(file_path: str) -> int:
+    """Calculates Source Lines of Code (SLOC) from a file on disk."""
+    path = Path(file_path)
+    ext = path.suffix.lower()
+
+    if ext in SLOC_IGNORE_EXTS:
+        return 0
+
+    try:
+        # Read file with error handling
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            content = f.read()
+            return count_sloc_from_text(content, ext)
+    except Exception:
+        return 0
 
 
 def render_dashboard(

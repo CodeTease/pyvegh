@@ -163,16 +163,18 @@ pub fn create_snap_logic(
                 break;
             }
             if let Ok(entry) = result
-                && entry.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
-                    // Check against output file recursion
-                    if let Ok(abs) = fs::canonicalize(entry.path())
-                        && abs == output_abs {
-                            continue;
-                        }
-                    if path_tx_for_scan.send(entry.path().to_path_buf()).is_err() {
-                        break;
-                    }
+                && entry.file_type().map(|ft| ft.is_file()).unwrap_or(false)
+            {
+                // Check against output file recursion
+                if let Ok(abs) = fs::canonicalize(entry.path())
+                    && abs == output_abs
+                {
+                    continue;
                 }
+                if path_tx_for_scan.send(entry.path().to_path_buf()).is_err() {
+                    break;
+                }
+            }
         }
     });
 
