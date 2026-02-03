@@ -528,7 +528,7 @@ fn scan_locs_dir(source: String, exclude: Option<Vec<String>>) -> PyResult<Vec<(
 }
 
 #[pyfunction]
-fn list_files_details(file_path: String) -> PyResult<Vec<(String, u64)>> {
+fn list_files_details(file_path: String) -> PyResult<Vec<(String, u64, String)>> {
     let file = File::open(&file_path).map_err(|e| PyIOError::new_err(e.to_string()))?;
     let decoder = zstd::stream::read::Decoder::new(file).unwrap();
     let mut archive = tar::Archive::new(decoder);
@@ -548,7 +548,7 @@ fn list_files_details(file_path: String) -> PyResult<Vec<(String, u64)>> {
                     return Ok(manifest
                         .entries
                         .into_iter()
-                        .map(|en| (en.path, en.size))
+                        .map(|en| (en.path, en.size, en.hash))
                         .collect());
                 }
             }
@@ -557,11 +557,26 @@ fn list_files_details(file_path: String) -> PyResult<Vec<(String, u64)>> {
                 && path_str != ".vegh.json"
                 && path_str != "manifest.json"
             {
-                results.push((path_str, size));
+                results.push((path_str, size, String::new()));
             }
         }
     }
     Ok(results)
+}
+
+#[pyfunction]
+fn hash_file(file_path: String) -> PyResult<String> {
+    let file = File::open(&file_path).map_err(|e| PyIOError::new_err(e.to_string()))?;
+    let mut hasher = blake3::Hasher::new();
+
+    if let Ok(mmap) = unsafe { memmap2::MmapOptions::new().map(&file) } {
+        hasher.update_rayon(&mmap);
+    } else {
+        let mut f = File::open(&file_path).map_err(|e| PyIOError::new_err(e.to_string()))?;
+        std::io::copy(&mut f, &mut hasher).map_err(|e| PyIOError::new_err(e.to_string()))?;
+    }
+
+    Ok(hasher.finalize().to_hex().to_string())
 }
 
 #[pymodule]
@@ -580,5 +595,6 @@ fn pyvegh_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(search_snap, m)?)?;
     m.add_function(wrap_pyfunction!(count_locs, m)?)?;
     m.add_function(wrap_pyfunction!(read_snapshot_text, m)?)?;
+    m.add_function(wrap_pyfunction!(hash_file, m)?)?;
     Ok(())
 }
