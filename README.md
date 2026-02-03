@@ -54,6 +54,16 @@ vegh config list
 vegh config reset
 ```
 
+**Advanced:** You can also configure custom `audit` patterns in `~/.vegh/config.json`:
+```json
+{
+  "audit": {
+    "patterns": ["custom_secret\\.key", ".*\\.private"],
+    "keywords": ["MY_API_KEY", "INTERNAL_TOKEN"]
+  }
+}
+```
+
 ### 2\. Create Snapshot
 
 Pack a directory into a highly compressed snapshot.
@@ -104,6 +114,9 @@ Clean up old snapshots to free disk space.
 # Keep only the 5 most recent snapshots in the current directory
 vegh prune --keep 5
 
+# Delete snapshots older than 30 days (but always keep the 5 most recent)
+vegh prune --older-than 30 --keep 5
+
 # Force clean without confirmation (useful for CI/CD)
 vegh prune --keep 1 --force
 ```
@@ -143,6 +156,7 @@ vegh cat backup.vegh src/main.rs
 vegh cat backup.vegh image.png --raw > extracted_image.png
 
 # Compare snapshot with a directory
+# (Automatically performs Blake3 Hash comparison if file sizes match)
 vegh diff backup.vegh ./current-project
 ```
 
@@ -172,6 +186,14 @@ Create a `.veghhooks.json` in your workspace.
   "pre": ["echo 'Checking...'", "ruff check -e"],
   "post": ["echo 'Clean up...'"]
 }
+```
+
+### 12\. Audit
+
+Scan a snapshot for sensitive filenames and secrets.
+
+```shell
+vegh audit backup.vegh
 ```
 
 ## Library Usage
