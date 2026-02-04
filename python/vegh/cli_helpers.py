@@ -35,7 +35,7 @@ def load_config() -> Dict:
         try:
             with open(CONFIG_FILE, "r") as f:
                 return json.load(f)
-        except:
+        except Exception:
             pass
     return {}
 
@@ -65,7 +65,7 @@ def get_dir_size(path: Path) -> int:
         for entry in path.rglob("*"):
             if entry.is_file():
                 total += entry.stat().st_size
-    except:
+    except Exception:
         pass
     return total
 

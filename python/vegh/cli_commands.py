@@ -14,7 +14,8 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.prompt import Prompt, Confirm
 
-from .cli_main import app, create_snap, dry_run_snap
+from .cli_main import app
+from ._core import create_snap, dry_run_snap
 from .cli_helpers import (
     console,
     format_bytes,
@@ -44,6 +45,7 @@ from ._core import (
     get_context_xml,
     search_snap,
     read_snapshot_text,
+    hash_file,
 )
 from .analytics import render_dashboard, scan_sloc, calculate_sloc, count_sloc_from_text
 
@@ -56,6 +58,9 @@ def prune(
     keep: int = typer.Option(
         5, "--keep", "-k", help="Number of recent snapshots to keep"
     ),
+    older_than: Optional[int] = typer.Option(
+        None, "--older-than", help="Delete snapshots older than X days"
+    ),
     force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
 ):
     """Clean up old snapshots, keeping only the most recent ones."""
@@ -67,18 +72,36 @@ def prune(
         target_dir.glob("*.vegh"), key=lambda f: f.stat().st_mtime, reverse=True
     )
 
-    if len(snapshots) <= keep:
+    delete_list = []
+
+    if older_than is not None:
+        cutoff = time.time() - (older_than * 86400)
+        # Identify files older than cutoff
+        time_candidates = [s for s in snapshots if s.stat().st_mtime < cutoff]
+
+        # Ensure we keep at least 'keep' snapshots (the most recent ones)
+        safe_set = set(snapshots[:keep])
+        delete_list = [s for s in time_candidates if s not in safe_set]
+
         console.print(
-            f"[green]No cleanup needed. Found {len(snapshots)} snapshots (Keep: {keep}).[/green]"
+            f"[cyan]Policy: Delete older than {older_than} days (except top {keep}).[/cyan]"
         )
+    else:
+        if len(snapshots) <= keep:
+            console.print(
+                f"[green]No cleanup needed. Found {len(snapshots)} snapshots (Keep: {keep}).[/green]"
+            )
+            return
+
+        delete_list = snapshots[keep:]
+
+        console.print(
+            f"[bold cyan]Found {len(snapshots)} snapshots. Keeping {keep} most recent.[/bold cyan]"
+        )
+
+    if not delete_list:
+        console.print("[green]No snapshots match deletion criteria.[/green]")
         return
-
-    keep_list = snapshots[:keep]
-    delete_list = snapshots[keep:]
-
-    console.print(
-        f"[bold cyan]Found {len(snapshots)} snapshots. Keeping {len(keep_list)} most recent.[/bold cyan]"
-    )
 
     table = Table(title="Snapshots to Delete")
     table.add_column("File", style="red")
@@ -336,15 +359,20 @@ def diff(
                 repo_path, source_name = ensure_repo(repo, branch, offline)
                 source_name = f"Repo: {source_name}"
                 snap_list = dry_run_snap(str(repo_path))
-                snap_map = {Path(p).as_posix(): s for p, s in snap_list}
+                snap_map = {
+                    Path(p).as_posix(): {"size": s, "hash": None} for p, s in snap_list
+                }
             elif file:
                 if not file.exists():
                     console.print(f"[red]File '{file}' not found.[/red]")
                     raise typer.Exit(1)
                 source_name = f"Snap: {file.name}"
                 snap_files = list_files_details(str(file))
+                # list_files_details now returns (path, size, hash)
                 snap_map = {
-                    Path(p).as_posix(): s for p, s in snap_files if p != ".vegh.json"
+                    Path(p).as_posix(): {"size": s, "hash": h}
+                    for p, s, h in snap_files
+                    if p != ".vegh.json"
                 }
             else:
                 console.print(
@@ -355,11 +383,15 @@ def diff(
             if target_is_snap:
                 target_files = list_files_details(str(target))
                 local_files = {
-                    Path(p).as_posix(): s for p, s in target_files if p != ".vegh.json"
+                    Path(p).as_posix(): {"size": s, "hash": h}
+                    for p, s, h in target_files
+                    if p != ".vegh.json"
                 }
             else:
                 local_list = dry_run_snap(str(target))
-                local_files = {Path(p).as_posix(): s for p, s in local_list}
+                local_files = {
+                    Path(p).as_posix(): {"size": s, "hash": None} for p, s in local_list
+                }
         except Exception as e:
             console.print(f"[red]Error:[/red] {e}")
             raise typer.Exit(1)
@@ -376,11 +408,48 @@ def diff(
         in_loc = path in local_files
 
         if in_src and in_loc:
-            if snap_map[path] != local_files[path]:
+            src_info = snap_map[path]
+            loc_info = local_files[path]
+            src_size = src_info["size"]
+            loc_size = loc_info["size"]
+
+            modified = False
+            details = ""
+
+            if src_size != loc_size:
+                modified = True
+                details = f"Size: {format_bytes(src_size)} -> {format_bytes(loc_size)}"
+            else:
+                # Same size, check content via Hash
+                src_hash = src_info.get("hash")
+
+                if src_hash:  # Only if source is snapshot (or has hash)
+                    loc_hash = loc_info.get("hash")
+
+                    if loc_hash:
+                        # Target is also snapshot, compare hashes directly
+                        if src_hash != loc_hash:
+                            modified = True
+                            details = "Content Changed (Hash mismatch)"
+                    elif not target_is_snap:
+                        # Target is local directory, compute hash on demand
+                        try:
+                            full_local_path = target / path
+                            if full_local_path.exists():
+                                computed = hash_file(str(full_local_path))
+                                if computed != src_hash:
+                                    modified = True
+                                    details = "Content Changed (Hash mismatch)"
+                        except Exception:
+                            # If hashing fails (permissions etc), assume unmodified or warn?
+                            # For now, if we can't read it, we rely on size (which matched).
+                            pass
+
+            if modified:
                 table.add_row(
                     path,
                     "[yellow]MODIFIED[/yellow]",
-                    f"Size: {format_bytes(snap_map[path])} -> {format_bytes(local_files[path])}",
+                    details,
                 )
                 changes = True
         elif in_src and not in_loc:
@@ -417,6 +486,24 @@ def audit(
 
     console.print(f"[bold cyan]Auditing {file.name}...[/bold cyan]")
 
+    # Load custom audit config
+    cfg = load_config()
+    audit_cfg = cfg.get("audit", {})
+    custom_patterns = audit_cfg.get("patterns", [])
+    custom_keywords = audit_cfg.get("keywords", [])
+
+    final_patterns = SENSITIVE_PATTERNS + custom_patterns
+
+    secret_keywords = [
+        "PASSWORD",
+        "SECRET_KEY",
+        "TOKEN",
+        "API_KEY",
+        "ACCESS_KEY",
+        "PRIVATE_KEY",
+    ]
+    final_keywords = secret_keywords + custom_keywords
+
     risks = []
 
     try:
@@ -424,9 +511,14 @@ def audit(
 
         # 1. Filename Scan
         for path in files:
-            for pattern in SENSITIVE_PATTERNS:
-                if re.search(pattern, path, re.IGNORECASE):
-                    risks.append((path, "Filename Match", f"Pattern: {pattern}"))
+            for pattern in final_patterns:
+                try:
+                    if re.search(pattern, path, re.IGNORECASE):
+                        risks.append((path, "Filename Match", f"Pattern: {pattern}"))
+                except re.error:
+                    console.print(
+                        f"[yellow]Warning: Invalid regex pattern '{pattern}' in config[/yellow]"
+                    )
 
         # 2. Content Scan (Config files only)
         # Scan for common secrets inside textual config files
@@ -440,14 +532,6 @@ def audit(
             ".ini",
             ".xml",
         }
-        secret_keywords = [
-            "PASSWORD",
-            "SECRET_KEY",
-            "TOKEN",
-            "API_KEY",
-            "ACCESS_KEY",
-            "PRIVATE_KEY",
-        ]
 
         for path in files:
             p = Path(path)
@@ -457,7 +541,7 @@ def audit(
                     content_bytes = cat_file(str(file), path)
                     try:
                         content = bytes(content_bytes).decode("utf-8")
-                        for keyword in secret_keywords:
+                        for keyword in final_keywords:
                             if keyword in content:
                                 risks.append(
                                     (path, "Content Match", f"Found keyword: {keyword}")
@@ -504,7 +588,7 @@ def doctor(
         console.print("Config: [dim]Not configured[/dim]")
 
     try:
-        from . import _core
+        from . import _core  # noqa: F401
 
         console.print("Rust Core: [green]Loaded[/green]")
     except ImportError:

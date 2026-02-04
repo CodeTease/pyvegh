@@ -3,6 +3,9 @@ from rich.console import Console
 
 import typer
 
+# Add sub-apps
+from .cli_config import config_app
+
 # Try to import package version metadata (Modern Pythonic way)
 try:
     from importlib.metadata import version as get_package_version, PackageNotFoundError
@@ -13,37 +16,10 @@ except ImportError:
 
 # Import core functionality
 try:
-    from ._core import (
-        create_snap,
-        dry_run_snap,
-        restore_snap,
-        check_integrity,
-        list_files,
-        get_metadata,
-        count_locs,
-        scan_locs_dir,
-        cat_file,
-        list_files_details,
-        get_context_xml,
-        search_snap,
-        read_snapshot_text,
-    )
+    from . import _core  # noqa: F401
 except ImportError:
     print("Error: Rust core missing. Run 'maturin develop'!")
     exit(1)
-
-# Import Analytics module
-try:
-    from .analytics import (
-        render_dashboard,
-        scan_sloc,
-        calculate_sloc,
-        count_sloc_from_text,
-    )
-except ImportError:
-    render_dashboard = None
-    scan_sloc = None
-    calculate_sloc = None
 
 # Define context settings to enable '-h' alongside '--help'
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
@@ -91,8 +67,5 @@ def main(
     """
     pass
 
-
-# Add sub-apps
-from .cli_config import config_app
 
 app.add_typer(config_app, name="config")

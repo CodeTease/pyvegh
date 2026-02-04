@@ -39,7 +39,7 @@ pub struct VeghMetadata {
 
 // Pipeline Messages
 enum WorkerResult {
-    Processed(ProcessedMessage),
+    Processed(Box<ProcessedMessage>),
     Error(String),
 }
 
@@ -66,6 +66,7 @@ enum DataAction {
 
 // --- Main Packing Logic ---
 
+#[allow(clippy::too_many_arguments)]
 pub fn create_snap_logic(
     source: &Path,
     output: &Path,
@@ -355,7 +356,7 @@ pub fn create_snap_logic(
 
                 match process_res {
                     Ok(msg) => {
-                        let _ = tx.send(WorkerResult::Processed(msg));
+                        let _ = tx.send(WorkerResult::Processed(Box::new(msg)));
                     }
                     Err(e) => {
                         let _ = tx.send(WorkerResult::Error(e.to_string()));
@@ -384,7 +385,8 @@ pub fn create_snap_logic(
                     eprintln!("Error: {}", e);
                 }
             }
-            WorkerResult::Processed(pm) => {
+            WorkerResult::Processed(pm_box) => {
+                let pm = *pm_box;
                 if pm.is_cached_hit {
                     cache_hit_count += 1;
                 }

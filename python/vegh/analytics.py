@@ -120,9 +120,9 @@ def calculate_sloc(file_path: str) -> int:
         # Check if file is binary
         with open(file_path, "rb") as f:
             chunk = f.read(512)
-            if b'\x00' in chunk:
+            if b"\x00" in chunk:
                 return 0
-        
+
         # Read file with error handling
         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read()
