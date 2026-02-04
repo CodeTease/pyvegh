@@ -119,6 +119,7 @@ fn read_snapshot_text(file_path: String) -> PyResult<Vec<(String, String)>> {
 
 #[pyfunction]
 #[pyo3(signature = (source, output, level=3, comment=None, include=None, exclude=None, no_cache=false, verbose=true))]
+#[allow(clippy::too_many_arguments)]
 fn create_snap(
     source: String,
     output: String,

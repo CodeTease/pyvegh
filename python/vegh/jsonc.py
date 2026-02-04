@@ -1,6 +1,6 @@
 # A simple JSONC parser, written to avoid extra dependencies.
 # It removes comments from JSONC strings and parses the result as JSON.
-# Use internally only, so we probably don't need advance parsing features.  
+# Use internally only, so we probably don't need advance parsing features.
 
 import json
 import re

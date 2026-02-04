@@ -14,7 +14,8 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.prompt import Prompt, Confirm
 
-from .cli_main import app, create_snap, dry_run_snap
+from .cli_main import app
+from ._core import create_snap, dry_run_snap
 from .cli_helpers import (
     console,
     format_bytes,
@@ -77,12 +78,14 @@ def prune(
         cutoff = time.time() - (older_than * 86400)
         # Identify files older than cutoff
         time_candidates = [s for s in snapshots if s.stat().st_mtime < cutoff]
-        
+
         # Ensure we keep at least 'keep' snapshots (the most recent ones)
         safe_set = set(snapshots[:keep])
         delete_list = [s for s in time_candidates if s not in safe_set]
-        
-        console.print(f"[cyan]Policy: Delete older than {older_than} days (except top {keep}).[/cyan]")
+
+        console.print(
+            f"[cyan]Policy: Delete older than {older_than} days (except top {keep}).[/cyan]"
+        )
     else:
         if len(snapshots) <= keep:
             console.print(
@@ -357,8 +360,7 @@ def diff(
                 source_name = f"Repo: {source_name}"
                 snap_list = dry_run_snap(str(repo_path))
                 snap_map = {
-                    Path(p).as_posix(): {"size": s, "hash": None} 
-                    for p, s in snap_list
+                    Path(p).as_posix(): {"size": s, "hash": None} for p, s in snap_list
                 }
             elif file:
                 if not file.exists():
@@ -369,7 +371,8 @@ def diff(
                 # list_files_details now returns (path, size, hash)
                 snap_map = {
                     Path(p).as_posix(): {"size": s, "hash": h}
-                    for p, s, h in snap_files if p != ".vegh.json"
+                    for p, s, h in snap_files
+                    if p != ".vegh.json"
                 }
             else:
                 console.print(
@@ -381,13 +384,13 @@ def diff(
                 target_files = list_files_details(str(target))
                 local_files = {
                     Path(p).as_posix(): {"size": s, "hash": h}
-                    for p, s, h in target_files if p != ".vegh.json"
+                    for p, s, h in target_files
+                    if p != ".vegh.json"
                 }
             else:
                 local_list = dry_run_snap(str(target))
                 local_files = {
-                    Path(p).as_posix(): {"size": s, "hash": None} 
-                    for p, s in local_list
+                    Path(p).as_posix(): {"size": s, "hash": None} for p, s in local_list
                 }
         except Exception as e:
             console.print(f"[red]Error:[/red] {e}")
@@ -409,20 +412,20 @@ def diff(
             loc_info = local_files[path]
             src_size = src_info["size"]
             loc_size = loc_info["size"]
-            
+
             modified = False
             details = ""
-            
+
             if src_size != loc_size:
                 modified = True
                 details = f"Size: {format_bytes(src_size)} -> {format_bytes(loc_size)}"
             else:
                 # Same size, check content via Hash
                 src_hash = src_info.get("hash")
-                
-                if src_hash: # Only if source is snapshot (or has hash)
+
+                if src_hash:  # Only if source is snapshot (or has hash)
                     loc_hash = loc_info.get("hash")
-                    
+
                     if loc_hash:
                         # Target is also snapshot, compare hashes directly
                         if src_hash != loc_hash:
@@ -513,7 +516,9 @@ def audit(
                     if re.search(pattern, path, re.IGNORECASE):
                         risks.append((path, "Filename Match", f"Pattern: {pattern}"))
                 except re.error:
-                    console.print(f"[yellow]Warning: Invalid regex pattern '{pattern}' in config[/yellow]")
+                    console.print(
+                        f"[yellow]Warning: Invalid regex pattern '{pattern}' in config[/yellow]"
+                    )
 
         # 2. Content Scan (Config files only)
         # Scan for common secrets inside textual config files
@@ -583,7 +588,7 @@ def doctor(
         console.print("Config: [dim]Not configured[/dim]")
 
     try:
-        from . import _core
+        from . import _core  # noqa: F401
 
         console.print("Rust Core: [green]Loaded[/green]")
     except ImportError:
