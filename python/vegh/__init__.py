@@ -1,5 +1,5 @@
-# PyVegh - The CodeTease Snapshot Tool (Python Binding)
-# Copyright (c) 2025 CodeTease
+# PyVegh - The Snapshot Tool (Python Binding)
+# Copyright (c) 2026 CodeTease
 
 from ._core import (
     create_snap,
@@ -12,7 +12,7 @@ from ._core import (
     read_snapshot_text,
 )
 
-__version__ = "0.8.0"
+__version__ = "0.9.1"
 __all__ = [
     "create_snap",
     "dry_run_snap",

@@ -87,11 +87,11 @@ pub fn create_snap_logic(
 
     // Prepare Metadata
     let meta = VeghMetadata {
-        author: "CodeTease (PyVegh)".to_string(),
+        author: "PyVegh".to_string(),
         timestamp: Utc::now().timestamp(),
         timestamp_human: Some(Utc::now().to_rfc3339()),
         comment: comment.unwrap_or_default(),
-        tool_version: env!("CARGO_PKG_VERSION").to_string(),
+        tool_version: "PyVegh Core ".to_string() + env!("CARGO_PKG_VERSION"),
         format_version: SNAPSHOT_FORMAT_VERSION.to_string(),
     };
     let meta_json = serde_json::to_string_pretty(&meta)?;

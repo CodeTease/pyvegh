@@ -916,13 +916,19 @@ def check(file: Path = typer.Argument(..., help=".vegh file")):
             h = check_integrity(str(file))
             raw_meta = get_metadata(str(file))
             meta = json.loads(raw_meta)
-
+            ts = meta.get("timestamp_human") or str(meta.get("timestamp", "N/A"))
+            comment = meta.get("comment")
             grid = Table.grid(padding=1)
             grid.add_column(style="bold cyan", justify="right")
             grid.add_column(style="white")
             grid.add_row("Blake3:", f"[dim]{h}[/dim]")
             grid.add_row("Author:", meta.get("author", "Unknown"))
-            grid.add_row("Ver:", meta.get("tool_version", "Unknown"))
+            grid.add_row("Vegh Ver:", meta.get("tool_version", "Unknown"))
+            grid.add_row("Format:", meta.get("format_version", "Unknown"))
+            grid.add_row("Created:", f"[yellow]{ts}[/yellow]")
+
+            if comment:
+                grid.add_row("Comment:", f"[italic green]{comment}[/italic green]")
             console.print(
                 Panel(
                     grid,
